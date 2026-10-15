@@ -1,7 +1,7 @@
 
 [project]
 name = "qyro-cli"
-version = "1.0.0a2"
+version = "0.1.0"
 description = "The official developer CLI and project orchestrator for the Qyro ecosystem. Scaffold, develop, build, package, and sign cross-platform Python applications."
 authors = [{ name = "Neuri", email = "ppg@neuri.ai" }]
 maintainers = [
