@@ -141,6 +141,44 @@ def test_package_dmg_uses_staged_source_dir_with_only_app(tmp_path, monkeypatch)
     assert observed_source_dir is not None
 
 
+def test_package_dmg_copies_dmg_extra_files_when_create_dmg_is_available(tmp_path, monkeypatch):
+    release_root = tmp_path / "release"
+    output_root = release_root / "MyApp"
+    app_bundle = output_root / "MyApp.app" / "Contents" / "MacOS"
+    app_bundle.mkdir(parents=True)
+    (app_bundle / "MyApp").write_text("binary", encoding="utf-8")
+    notes = tmp_path / "docs" / "RELEASE_NOTES.md"
+    notes.parent.mkdir()
+    notes.write_text("notes", encoding="utf-8")
+
+    def fake_run(command, cwd):
+        source_dir = Path(command[-1])
+        assert (source_dir / "MyApp.app").exists()
+        assert (source_dir / "README.md").read_text(encoding="utf-8") == "notes"
+        assert (source_dir / "RELEASE_NOTES.md").read_text(encoding="utf-8") == "notes"
+
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda name: "/usr/bin/create-dmg" if name == "create-dmg" else None,
+    )
+    bundler = ReleaseBundler()
+    monkeypatch.setattr(bundler, "_run", fake_run)
+
+    bundler._package_dmg(
+        output_root=output_root,
+        release_root=release_root,
+        app_name="MyApp",
+        app_version="1.0.0",
+        project_root=tmp_path,
+        dmg_options={
+            "extra_files": [
+                {"source": "docs/RELEASE_NOTES.md", "destination": "README.md"},
+                "docs/RELEASE_NOTES.md",
+            ]
+        },
+    )
+
+
 def test_bundle_copies_extra_files_from_release_settings(tmp_path):
     project_root = tmp_path
     freeze_root = project_root / "build"
@@ -309,6 +347,27 @@ def test_package_dmg_raises_when_custom_options_without_create_dmg(tmp_path, mon
             app_version="1.0.0",
             project_root=tmp_path,
             dmg_options={"icon_size": 120},
+        )
+
+
+def test_package_dmg_extra_files_require_create_dmg(tmp_path, monkeypatch):
+    release_root = tmp_path / "release"
+    output_root = release_root / "MyApp"
+    app_bundle = output_root / "MyApp.app" / "Contents" / "MacOS"
+    app_bundle.mkdir(parents=True)
+    (app_bundle / "MyApp").write_text("binary", encoding="utf-8")
+    (tmp_path / "README.md").write_text("notes", encoding="utf-8")
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+
+    with pytest.raises(QyroError, match="create-dmg"):
+        ReleaseBundler()._package_dmg(
+            output_root=output_root,
+            release_root=release_root,
+            app_name="MyApp",
+            app_version="1.0.0",
+            project_root=tmp_path,
+            dmg_options={"extra_files": ["README.md"]},
         )
 
 

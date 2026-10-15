@@ -33,6 +33,7 @@ from qyro_cli.domain.build import (
 from PIL import Image
 from qyro_cli.adapters.freeze.secrets_crypto import encrypt_secrets_payload
 from qyro_cli.adapters.persistence.storage import SIGNING_SETTING_KEYS
+from qyro_cli.adapters.process.runners import _prepared_psx_entry_point
 from qyro_cli.domain.errors import QyroError, FreezeExecutionError
 
 
@@ -74,7 +75,14 @@ class PyInstallerFreezer(FreezerPort):
                 hint="Verify 'entry_point' in settings/base.json or build.json.",
             )
 
-        cmd.append(str(entry_script))
+        # Match `qyro start`: freeze lexical PSX templates as ordinary Python
+        # rather than relying on the untransformed runtime explicit-scope API.
+        with _prepared_psx_entry_point(
+            str(entry_script), output_dir=project_root / "build" / "temp" / "psx"
+        ) as prepared_script:
+            cmd.append(prepared_script)
+            if prepared_script != str(entry_script):
+                cmd.extend(["--paths", str(project_root)])
 
         # Application Name
         cmd.extend(["--name", manifest.app_name])
@@ -156,6 +164,14 @@ class PyInstallerFreezer(FreezerPort):
             )
 
         sep = ";" if manifest.target_platform == "windows" else ":"
+        # The runtime discovers this package before it can read settings, so
+        # its embedded filename must be fixed even when bundle_path is custom.
+        # Keep the configured output file and stage a copy for PyInstaller.
+        if package_path.name != "resources.pak":
+            embedded_package_path = build_work_dir / ".qyro" / "resources.pak"
+            embedded_package_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(package_path, embedded_package_path)
+            package_path = embedded_package_path
         cmd.extend(["--add-data", f"{package_path.as_posix()}{sep}.qyro"])
         cmd.extend(["--add-data", f"{runtime_secret_module_path.as_posix()}{sep}.qyro"])
 

@@ -53,6 +53,13 @@ class ReleaseBundler(BundlePort):
         if resolved_format == "dmg":
             if platform_name != "mac":
                 raise UnsupportedOperationError("bundle:dmg", platform_name)
+            dmg_extra_files = dmg_options.get("extra_files", [])
+            if not isinstance(dmg_extra_files, list):
+                raise ValueError("bundle.dmg.extra_files must be a list")
+            self._validate_extra_files(
+                project_root=project_root,
+                extra_files=dmg_extra_files,
+            )
             self._validate_dmg_requirements(
                 project_root=project_root,
                 app_name=app_name,
@@ -307,10 +314,18 @@ class ReleaseBundler(BundlePort):
         shutil.copytree(app_bundle, staged_app_bundle)
 
         has_custom_options = self._has_dmg_customizations(dmg_options)
+        dmg_extra_files = dmg_options.get("extra_files", [])
+        if not isinstance(dmg_extra_files, list):
+            raise ValueError("bundle.dmg.extra_files must be a list")
 
         try:
             # Prefer create-dmg for a better UX installer presentation.
             if shutil.which("create-dmg") is not None:
+                self._copy_extra_files(
+                    project_root=project_root,
+                    output_root=dmg_source_dir,
+                    extra_files=dmg_extra_files,
+                )
                 command = [
                     "create-dmg",
                     "--volname",
@@ -432,6 +447,7 @@ class ReleaseBundler(BundlePort):
             "applications_position",
             "app_drop_link",
             "background",
+            "extra_files",
         }
         return any(k in options for k in keys)
 

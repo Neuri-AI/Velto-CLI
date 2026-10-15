@@ -116,7 +116,7 @@ class FreezeManifest:
     protect_resources: bool = False
     protected_settings_dir: str = "settings"
     protected_resources_dir: str = "resources"
-    protected_bundle_relative_path: str = ".qyro/protected_resources.pak"
+    protected_bundle_relative_path: str = ".qyro/resources.pak"
     extra_pyinstaller_args: List[str] = field(default_factory=list)
     paths: List[str] = field(default_factory=list)
     collect_all: List[str] = field(default_factory=list)

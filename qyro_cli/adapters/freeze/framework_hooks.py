@@ -32,7 +32,11 @@ class FrameworkHookResolver(FrameworkHookResolverPort):
         project_root: Path,
         manifest: FreezeManifest,
     ) -> List[str]:
-        args: List[str] = []
+        # FrameworkFactory imports adapters dynamically. Include the whole
+        # adapter package so explicit selection, auto-detection and the
+        # headless fallback work in frozen apps. Competing toolkit packages
+        # are still excluded below; adapters remain lazy at runtime.
+        args: List[str] = ["--collect-submodules", "qyro.adapters.frameworks"]
 
         binding = Binding.parse(manifest.binding)
 

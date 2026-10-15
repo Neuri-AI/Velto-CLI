@@ -342,13 +342,13 @@ class FreezeDesktopUseCase:
             protected_settings_dir = str(protection_raw.get("settings_dir", "settings"))
             protected_resources_dir = str(protection_raw.get("resources_dir", "resources"))
             protected_bundle_relative_path = str(
-                protection_raw.get("bundle_path", ".qyro/protected_resources.pak")
+                protection_raw.get("bundle_path", ".qyro/resources.pak")
             )
         else:
             protect_resources = bool(protection_raw)
             protected_settings_dir = "settings"
             protected_resources_dir = "resources"
-            protected_bundle_relative_path = ".qyro/protected_resources.pak"
+            protected_bundle_relative_path = ".qyro/resources.pak"
 
         return FreezeManifest(
             app_name=app_name,

@@ -149,7 +149,7 @@ def test_build_command_does_not_add_external_encrypted_secrets_entry(
 
     freezer = PyInstallerFreezer(FrameworkHookResolver())
 
-    package = tmp_path / ".qyro" / "protected_resources.pak"
+    package = tmp_path / ".qyro" / "resources.pak"
     runtime_module = tmp_path / ".qyro" / "runtime.pyd"
     package.parent.mkdir(parents=True, exist_ok=True)
     package.write_bytes(b"pak")
@@ -266,7 +266,7 @@ def test_build_command_protects_secrets_even_when_resource_protection_is_disable
     (resources_dir / "logo.png").write_text("png", encoding="utf-8")
 
     freezer = PyInstallerFreezer(FrameworkHookResolver())
-    package = tmp_path / ".qyro" / "protected_resources.pak"
+    package = tmp_path / ".qyro" / "resources.pak"
     runtime_module = tmp_path / ".qyro" / "runtime.pyd"
     package.parent.mkdir(parents=True, exist_ok=True)
     package.write_bytes(b"pak")
@@ -289,7 +289,7 @@ def test_build_command_protects_secrets_even_when_resource_protection_is_disable
     cmd = freezer.build_command(tmp_path, manifest)
     add_data_values = [cmd[i + 1] for i, token in enumerate(cmd) if token == "--add-data"]
 
-    assert any(".qyro/protected_resources.pak" in value for value in add_data_values)
+    assert any(".qyro/resources.pak" in value for value in add_data_values)
     assert any(".qyro/runtime" in value and ".pyd" in value for value in add_data_values)
     assert not any(".qyro/secrets.json" in value for value in add_data_values)
 

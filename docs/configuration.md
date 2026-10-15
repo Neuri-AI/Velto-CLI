@@ -298,7 +298,7 @@ Use `mac_target_architecture` in `mac.json` for the macOS build target. A `unive
     "enabled": true,
     "settings_dir": "settings",
     "resources_dir": "resources",
-    "bundle_path": ".qyro/protected_resources.pak"
+    "bundle_path": ".qyro/resources.pak"
   }
 }
 ```
@@ -318,23 +318,23 @@ Choosing another `platform` configures a manifest; it does not provide cross-com
     "enabled": true,
     "settings_dir": "settings",
     "resources_dir": "resources",
-    "bundle_path": ".qyro/protected_resources.pak"
+    "bundle_path": ".qyro/resources.pak"
   },
   "bundle": {
-    "extra_files": [
-      "README.md",
-      {
-        "source": "docs/RELEASE_NOTES.md",
-        "destination": "docs/RELEASE_NOTES.md"
-      }
-    ],
     "dmg": {
       "window": {"x": 200, "y": 120},
       "window_size": {"width": 660, "height": 420},
       "icon_size": 120,
       "app_position": {"x": 180, "y": 180},
       "applications_position": {"x": 480, "y": 180},
-      "background": "assets/dmg-background.jpg"
+      "background": "assets/dmg-background.jpg",
+      "extra_files": [
+        "README.md",
+        {
+          "source": "docs/RELEASE_NOTES.md",
+          "destination": "docs/RELEASE_NOTES.md"
+        }
+      ]
     },
     "nsis": {
       "icons": {
@@ -360,7 +360,7 @@ Because `release.json` is merged before the build manifest is created, it may al
 | `resource_protection.enabled` | `false` | Encrypts settings/resources into a protected package and compiles the runtime secret module. |
 | `settings_dir` | `settings` | Source settings directory. |
 | `resources_dir` | `resources` | Source resources directory. |
-| `bundle_path` | `.qyro/protected_resources.pak` | Path inside the frozen layout. |
+| `bundle_path` | `.qyro/resources.pak` | Path inside the frozen layout. |
 
 `protected_resources` is an alias. Even without full resource protection, the current build compiles a runtime module for encrypted secrets, so the desktop extra, Cython, and a native compiler are required.
 
@@ -380,6 +380,9 @@ Run `qyro bundle --check` to validate these paths without packaging.
 | `app_position` | `{x, y}` | App icon position; `app_icon_position` is an alias. |
 | `applications_position` | `{x, y}` | Applications link position; `app_drop_link` is an alias. |
 | `background` | path | Existing background image. |
+| `extra_files` | list | Files or directories included at the DMG root. Uses the same string/object forms as `bundle.extra_files`. |
+
+`bundle.dmg.extra_files` is copied into the DMG staging directory, so it is included in the final image. It requires `create-dmg`; Qyro rejects this option when it would otherwise fall back to `hdiutil`, because that path does not support these files. Generic `bundle.extra_files` remains outside the DMG and is intended for `dir`, ZIP, and tarball releases.
 
 Any custom DMG option requires `create-dmg`. With no customization, Qyro can fall back to macOS `hdiutil`.
 
@@ -477,7 +480,7 @@ This file contains API keys, tokens, licenses, and other protected values requir
 }
 ```
 
-In source mode, Qyro Engine reads the local JSON. During `qyro build`, the CLI excludes the plaintext file, encrypts the complete object with AES-256-GCM, and stores `.qyro/secrets.enc` inside `protected_resources.pak`. The compiled runtime module lets the Engine authenticate, decrypt, and merge it in memory. Application code reads the values through `context.app_settings` or `self.app_settings` in both modes.
+In source mode, Qyro Engine reads the local JSON. During `qyro build`, the CLI excludes the plaintext file, encrypts the complete object with AES-256-GCM, and stores `.qyro/secrets.enc` inside `resources.pak`. The compiled runtime module lets the Engine authenticate, decrypt, and merge it in memory. Application code reads the values through `context.app_settings` or `self.app_settings` in both modes.
 
 The Engine uses a shallow merge, so repeat a complete nested object in secrets or prefer flat keys. The CLI uses a deep merge. Do not add a `sign` object or legacy flat signing keys here: the build rejects them instead of embedding signing credentials in the client. Signing and notarization values belong exclusively in `settings/sign.json`.
 
