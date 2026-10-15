@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 from qyro_cli.application.use_cases.sign import SignCompiledAppUseCase
 from qyro_cli.domain.build import SigningArtifact
@@ -74,7 +74,10 @@ def test_sign_use_case_delegates_to_signer(tmp_path):
             },
         },
     )
-    settings.activate_profile.assert_called_once_with("release")
+    assert settings.activate_profile.call_args_list == [
+        call("release"),
+        call("sign"),
+    ]
 
 
 def test_sign_use_case_check_runs_preflight(tmp_path):

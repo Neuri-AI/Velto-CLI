@@ -98,6 +98,7 @@ class SignCompiledAppUseCase:
 
         if hasattr(self._settings, "activate_profile"):
             self._settings.activate_profile("release")
+            self._settings.activate_profile("sign")
 
         self._guards.require_existing_project()
         self._guards.require_frozen_app()

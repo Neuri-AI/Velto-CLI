@@ -145,7 +145,7 @@ class CompiledAppSigner(ApplicationSignerPort):
         if not certificate_rel:
             raise QyroError(
                 "Windows signing certificate is not configured.",
-                hint="Set sign.windows.certificate or windows_sign_certificate in project settings.",
+                hint="Set sign.windows.certificate in settings/sign.json.",
             )
 
         certificate_path = (project_root / certificate_rel).resolve()
@@ -159,7 +159,7 @@ class CompiledAppSigner(ApplicationSignerPort):
         if not password:
             raise QyroError(
                 "Windows signing password is not configured.",
-                hint="Set sign.windows.password or windows_sign_pass in project settings.",
+                hint="Set sign.windows.password in settings/sign.json.",
             )
 
     def _validate_mac_requirements(
@@ -178,7 +178,7 @@ class CompiledAppSigner(ApplicationSignerPort):
         if not identity:
             raise QyroError(
                 "macOS signing identity is not configured.",
-                hint="Set sign.mac.identity or mac_sign_identity in project settings.",
+                hint="Set sign.mac.identity in settings/sign.json.",
             )
 
         notary_options = self._mac_notary_options(options)
@@ -437,7 +437,7 @@ class CompiledAppSigner(ApplicationSignerPort):
         raise QyroError(
             "Notarization is enabled but no valid notarytool authentication is configured.",
             hint=(
-                "Configure one method under sign.mac.notary:\n"
+                "Configure one method under sign.mac.notary in settings/sign.json:\n"
                 "1) keychain_profile\n"
                 "2) key_path + key_id (+ issuer for Team keys)\n"
                 "3) apple_id + team_id + app_password"

@@ -1,7 +1,7 @@
 
 [project]
 name = "qyro-cli"
-version = "1.0.0a1"
+version = "0.1.0"
 description = "The official developer CLI and project orchestrator for the Qyro ecosystem. Scaffold, develop, build, package, and sign cross-platform Python applications."
 authors = [{ name = "Neuri", email = "ppg@neuri.ai" }]
 maintainers = [
@@ -16,7 +16,7 @@ keywords = [
 ]
 
 license = "MIT"
-requires-python = ">=3.10,<3.16"
+requires-python = ">=3.10,<3.14"
 readme = "README.md"
 
 dependencies = [
@@ -25,13 +25,15 @@ dependencies = [
     "rich>=15.0.0,<16.0.0",
     "prompt-toolkit>=3.0.53,<4.0.0",
     "questionary>=2.1.1,<3.0.0",
-    "qyro-engine>=1.0.0a1,<2.0.0"
+    "qyro-engine>=1.0.0a1,<2.0.0",
+    "cryptography>=45.0.0,<47.0.0"
 ]
 
 [project.optional-dependencies]
 desktop = [
     "pyinstaller>=6.22.3,<7.0.0",
     "pillow>=11.0.0,<13.0.0",
+    "cython>=3.0.12,<4.0.0",
 ]
 
 mobile = [

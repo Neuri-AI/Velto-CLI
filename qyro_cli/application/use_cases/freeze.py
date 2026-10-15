@@ -331,6 +331,25 @@ class FreezeDesktopUseCase:
         if isinstance(settings_collect_all, list):
             collect_all.extend(settings_collect_all)
 
+        protection_raw = (
+            build_data.get("resource_protection")
+            or build_data.get("protected_resources")
+            or self._settings.get_optional("resource_protection", {})
+            or self._settings.get_optional("protected_resources", {})
+        )
+        if isinstance(protection_raw, dict):
+            protect_resources = bool(protection_raw.get("enabled", False))
+            protected_settings_dir = str(protection_raw.get("settings_dir", "settings"))
+            protected_resources_dir = str(protection_raw.get("resources_dir", "resources"))
+            protected_bundle_relative_path = str(
+                protection_raw.get("bundle_path", ".qyro/resources.pak")
+            )
+        else:
+            protect_resources = bool(protection_raw)
+            protected_settings_dir = "settings"
+            protected_resources_dir = "resources"
+            protected_bundle_relative_path = ".qyro/resources.pak"
+
         return FreezeManifest(
             app_name=app_name,
             author=author,
@@ -348,6 +367,10 @@ class FreezeDesktopUseCase:
             extra_pyinstaller_args=extra_args,
             paths=paths,
             collect_all=collect_all,
+            protect_resources=protect_resources,
+            protected_settings_dir=protected_settings_dir,
+            protected_resources_dir=protected_resources_dir,
+            protected_bundle_relative_path=protected_bundle_relative_path,
         )
 
     def _append_macos_signing_args(self, extra_args: list[str], project_root: Path) -> None:

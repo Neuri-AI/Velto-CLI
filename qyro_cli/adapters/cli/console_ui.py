@@ -40,6 +40,7 @@ class RichConsoleUI:
             force_terminal=True,
             color_system="truecolor",
             theme=custom_theme,
+            highlight=False,
         )
 
     def _ascii_fallback(self, message: str) -> str:

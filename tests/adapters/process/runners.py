@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from types import ModuleType, SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -47,6 +48,34 @@ class TestImportlibModuleRegistry:
             assert registry.is_installed("example") is False
 
 class TestSubprocessAppRunner:
+    def test_run_from_source_prepares_literal_psx_markup_automatically(self, tmp_path, monkeypatch):
+        source = tmp_path / "main.py"
+        source.write_text('node = psx("<Text>{title}</Text>")\n', encoding="utf-8")
+        transformed = SimpleNamespace(source="print('generated')\n", transformed_calls=1)
+        transform_module = ModuleType("psx.markup.transform")
+        transform_module.transform_source = lambda text, filename: transformed
+        psx_module = ModuleType("psx")
+        psx_module.__path__ = []
+        markup_module = ModuleType("psx.markup")
+        markup_module.__path__ = []
+        monkeypatch.setitem(sys.modules, "psx", psx_module)
+        monkeypatch.setitem(sys.modules, "psx.markup", markup_module)
+        monkeypatch.setitem(sys.modules, "psx.markup.transform", transform_module)
+        observed: dict[str, object] = {}
+
+        def run(command, **kwargs):
+            generated = command[1]
+            observed["path"] = generated
+            observed["source"] = open(generated, encoding="utf-8").read()
+            return mock.Mock(returncode=0)
+
+        with mock.patch("qyro_cli.adapters.process.runners.subprocess.run", side_effect=run):
+            result = SubprocessAppRunner().run_from_source(str(source), str(tmp_path))
+
+        assert result == 0
+        assert observed["path"] != str(source)
+        assert observed["source"] == "print('generated')\n"
+
     def test_run_from_source_sets_pythonpath(self, monkeypatch):
         runner = SubprocessAppRunner()
         monkeypatch.setenv("PYTHONPATH", "existing/path")

@@ -16,6 +16,25 @@ from qyro_cli.domain.errors import MissingSettingError
 
 BASE_SETTINGS = "settings/base.json"
 SECRETS_SETTINGS = "settings/secrets.json"
+SIGNING_SETTING_KEYS = {
+    "sign",
+    "windows_sign_certificate",
+    "windows_sign_pass",
+    "windows_sign_server",
+    "windows_sign_description",
+    "mac_sign_identity",
+    "mac_sign_entitlements",
+    "mac_sign_notarize",
+    "mac_sign_staple",
+    "mac_sign_assess",
+    "mac_sign_notary_profile",
+    "mac_sign_notary_key",
+    "mac_sign_notary_key_id",
+    "mac_sign_notary_issuer",
+    "mac_sign_apple_id",
+    "mac_sign_team_id",
+    "mac_sign_app_password",
+}
 TEXT_EXTENSIONS = {
     ".cfg",
     ".ini",
@@ -186,16 +205,22 @@ class SettingsRepository:
 
     def _apply_secrets_overrides(self) -> None:
         """
-        Apply local-only secret settings with highest precedence.
+        Apply protected application settings with highest precedence.
 
-        This file is meant for build/signing secrets and should never be
-        committed to source control.
+        This file is packaged in encrypted form for the application runtime
+        and should never be committed to source control. Signing credentials
+        belong in the separate, local-only settings/sign.json profile.
         """
         for secrets_path in [
             self._root / SECRETS_SETTINGS,
         ]:
             data = self._load_json_dict(secrets_path)
             if data:
+                data = {
+                    key: value
+                    for key, value in data.items()
+                    if key not in SIGNING_SETTING_KEYS
+                }
                 self._deep_merge(self._settings, data)
 
     def get(self, key: str):

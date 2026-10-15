@@ -24,12 +24,19 @@ class FrameworkHookResolver(FrameworkHookResolverPort):
     - Common project settings and assets
     """
 
+    _SECRETS_FILE_NAME = "secrets.json"
+    _SIGN_FILE_NAME = "sign.json"
+
     def resolve_args(
         self,
         project_root: Path,
         manifest: FreezeManifest,
     ) -> List[str]:
-        args: List[str] = []
+        # FrameworkFactory imports adapters dynamically. Include the whole
+        # adapter package so explicit selection, auto-detection and the
+        # headless fallback work in frozen apps. Competing toolkit packages
+        # are still excluded below; adapters remain lazy at runtime.
+        args: List[str] = ["--collect-submodules", "qyro.adapters.frameworks"]
 
         binding = Binding.parse(manifest.binding)
 
@@ -257,6 +264,9 @@ class FrameworkHookResolver(FrameworkHookResolverPort):
         args: List[str] = []
         sep = self._data_separator(manifest)
 
+        if manifest.protect_resources:
+            return args
+
         resources_dir_name = manifest.resources_dir or "resources"
         resources_path = (project_root / resources_dir_name).resolve()
 
@@ -288,10 +298,21 @@ class FrameworkHookResolver(FrameworkHookResolverPort):
 
         settings_path = (project_root / "settings").resolve()
         if settings_path.is_dir():
-            args.extend([
-                "--add-data",
-                f"{settings_path.as_posix()}{sep}settings",
-            ])
+            for source in sorted(settings_path.rglob("*")):
+                if not source.is_file():
+                    continue
+                if source.name.lower() in {
+                    self._SECRETS_FILE_NAME,
+                    self._SIGN_FILE_NAME,
+                }:
+                    continue
+
+                rel_parent = source.relative_to(settings_path).parent.as_posix()
+                destination = "settings" if rel_parent == "." else f"settings/{rel_parent}"
+                args.extend([
+                    "--add-data",
+                    f"{source.as_posix()}{sep}{destination}",
+                ])
 
         return args
 

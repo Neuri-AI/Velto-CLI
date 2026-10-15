@@ -167,6 +167,10 @@ class SettingsPort(Protocol):
 class PackageMetadataPort(Protocol):
     """Provides metadata about the installed Qyro package."""
 
+    def cli_version(self) -> str: ...
+
+    def engine_version(self) -> str: ...
+
     def qyro_version(self) -> str: ...
 
 
