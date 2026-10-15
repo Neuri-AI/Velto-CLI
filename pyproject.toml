@@ -1,8 +1,8 @@
 
 [project]
-name = "qyro-cli"
+name = "velto-cli"
 version = "0.1.0"
-description = "The official developer CLI and project orchestrator for the Qyro ecosystem. Scaffold, develop, build, package, and sign cross-platform Python applications."
+description = "The official developer CLI and project orchestrator for the Velto framework ecosystem. Scaffold, develop, build, package, and sign cross-platform Python applications."
 authors = [{ name = "Neuri", email = "ppg@neuri.ai" }]
 maintainers = [
     { name = "Luis Alfredo De Los Reyes", email = "luisalfredoreyes98@gmail.com" },
@@ -11,12 +11,12 @@ dynamic = ["classifiers"]
 keywords = [
     "ppg", "python", "cli", "python-cli", "developer-tools", "build-tool",
     "project-generator", "app-packaging", "packaging", "code-signing", "cross-platform",
-    "desktop-app", "mobile-app", "pyinstaller", "pyqt", "pyside", "pyside6", 
+    "desktop-app", "mobile-app", "pyinstaller", "pyqt", "pyside", "pyside6",
     "kivy", "tkinter"
 ]
 
 license = "MIT"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10,<3.13"
 readme = "README.md"
 
 dependencies = [
@@ -25,8 +25,8 @@ dependencies = [
     "rich>=15.0.0,<16.0.0",
     "prompt-toolkit>=3.0.53,<4.0.0",
     "questionary>=2.1.1,<3.0.0",
-    "qyro-engine>=1.0.0a1,<2.0.0",
-    "cryptography>=45.0.0,<47.0.0"
+    "qyro-engine>=0.1.0,<1.0.0",
+    "cryptography>=45.0.0,<50.0.2"
 ]
 
 [project.optional-dependencies]
@@ -41,12 +41,12 @@ mobile = [
 ]
 
 [project.scripts]
-qyro = "qyro_cli.cmdline.app:main"
+velto = "velto_cli.cmdline.app:main"
 
 [tool.poetry]
 package-mode = true
 
-packages = [{ include = "qyro_cli" }]
+packages = [{ include = "velto_cli" }]
 
 classifiers = [
     "Intended Audience :: Developers",

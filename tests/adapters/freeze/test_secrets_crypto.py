@@ -11,16 +11,16 @@ import zipfile
 
 import pytest
 
-from qyro_cli.adapters.freeze.framework_hooks import FrameworkHookResolver
-from qyro_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
-from qyro_cli.adapters.freeze.secrets_crypto import (
+from velto_cli.adapters.freeze.framework_hooks import FrameworkHookResolver
+from velto_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
+from velto_cli.adapters.freeze.secrets_crypto import (
     SecretsCryptoError,
     decrypt_secrets_payload,
     derive_aes256_key,
     encrypt_secrets_payload,
 )
-from qyro_cli.domain.build import FreezeManifest
-from qyro_cli.domain.errors import QyroError
+from velto_cli.domain.build import FreezeManifest
+from velto_cli.domain.errors import QyroError
 
 
 def test_encrypt_decrypt_roundtrip() -> None:
@@ -121,7 +121,7 @@ def test_runtime_secret_sources_are_removed_when_cython_cannot_produce_binary(
         return SimpleNamespace(returncode=returncode, stdout="compiler failed")
 
     monkeypatch.setattr(
-        "qyro_cli.adapters.freeze.pyinstaller_adapter.subprocess.run",
+        "velto_cli.adapters.freeze.pyinstaller_adapter.subprocess.run",
         fake_run,
     )
 
@@ -149,8 +149,8 @@ def test_build_command_does_not_add_external_encrypted_secrets_entry(
 
     freezer = PyInstallerFreezer(FrameworkHookResolver())
 
-    package = tmp_path / ".qyro" / "resources.pak"
-    runtime_module = tmp_path / ".qyro" / "runtime.pyd"
+    package = tmp_path / ".velto" / "resources.pak"
+    runtime_module = tmp_path / ".velto" / "runtime.pyd"
     package.parent.mkdir(parents=True, exist_ok=True)
     package.write_bytes(b"pak")
     runtime_module.write_bytes(b"mod")
@@ -172,7 +172,7 @@ def test_build_command_does_not_add_external_encrypted_secrets_entry(
     cmd = freezer.build_command(tmp_path, manifest)
     add_data_values = [cmd[i + 1] for i, token in enumerate(cmd) if token == "--add-data"]
 
-    assert not any(".qyro/secrets.json" in value for value in add_data_values)
+    assert not any(".velto/secrets.json" in value for value in add_data_values)
 
 
 def test_protected_package_embeds_encrypted_secrets_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -191,7 +191,7 @@ def test_protected_package_embeds_encrypted_secrets_payload(tmp_path: Path, monk
 
     freezer = PyInstallerFreezer(FrameworkHookResolver())
     runtime_secret = b"r" * 32
-    runtime_module = tmp_path / ".qyro" / "runtime.pyd"
+    runtime_module = tmp_path / ".velto" / "runtime.pyd"
     runtime_module.parent.mkdir(parents=True, exist_ok=True)
     runtime_module.write_bytes(b"module")
 
@@ -212,7 +212,7 @@ def test_protected_package_embeds_encrypted_secrets_payload(tmp_path: Path, monk
     package_path, _ = freezer._prepare_protected_resources_package(project_root=tmp_path, manifest=manifest)
 
     assert package_path.exists()
-    assert not (tmp_path / ".qyro" / "secrets.json").exists()
+    assert not (tmp_path / ".velto" / "secrets.json").exists()
 
     raw = package_path.read_bytes()
     assert raw.startswith(b"QYRPKG")
@@ -241,9 +241,9 @@ def test_protected_package_embeds_encrypted_secrets_payload(tmp_path: Path, monk
         assert "settings/base.json" in names
         assert "settings/sign.json" not in names
         assert "resources/logo.png" in names
-        assert ".qyro/secrets.enc" in names
+        assert ".velto/secrets.enc" in names
 
-        encrypted_payload = archive.read(".qyro/secrets.enc")
+        encrypted_payload = archive.read(".velto/secrets.enc")
         assert b"local-secret" not in encrypted_payload
 
     decrypted = decrypt_secrets_payload(encrypted_payload, runtime_secret)
@@ -266,8 +266,8 @@ def test_build_command_protects_secrets_even_when_resource_protection_is_disable
     (resources_dir / "logo.png").write_text("png", encoding="utf-8")
 
     freezer = PyInstallerFreezer(FrameworkHookResolver())
-    package = tmp_path / ".qyro" / "resources.pak"
-    runtime_module = tmp_path / ".qyro" / "runtime.pyd"
+    package = tmp_path / ".velto" / "resources.pak"
+    runtime_module = tmp_path / ".velto" / "runtime.pyd"
     package.parent.mkdir(parents=True, exist_ok=True)
     package.write_bytes(b"pak")
     runtime_module.write_bytes(b"mod")
@@ -289,9 +289,9 @@ def test_build_command_protects_secrets_even_when_resource_protection_is_disable
     cmd = freezer.build_command(tmp_path, manifest)
     add_data_values = [cmd[i + 1] for i, token in enumerate(cmd) if token == "--add-data"]
 
-    assert any(".qyro/resources.pak" in value for value in add_data_values)
-    assert any(".qyro/runtime" in value and ".pyd" in value for value in add_data_values)
-    assert not any(".qyro/secrets.json" in value for value in add_data_values)
+    assert any(".velto/resources.pak" in value for value in add_data_values)
+    assert any(".velto/runtime" in value and ".pyd" in value for value in add_data_values)
+    assert not any(".velto/secrets.json" in value for value in add_data_values)
 
 
 def test_build_command_requires_secrets_json_even_when_resource_protection_is_disabled(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@
 import argparse
 from unittest.mock import Mock
 
-from qyro_cli.cmdline.commands.start import StartCommand
+from velto_cli.cmdline.commands.start import StartCommand
 
 
 def test_configure_does_not_add_arguments():
@@ -21,7 +21,7 @@ def test_execute_delegates_to_run_application_use_case(monkeypatch):
     container.run_application_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.start.get_container",
+        "velto_cli.cmdline.commands.start.get_container",
         lambda: container,
     )
 

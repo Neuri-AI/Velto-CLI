@@ -1,7 +1,7 @@
 import argparse
 from unittest.mock import ANY, Mock
 
-from qyro_cli.cmdline.commands.bundle import BundleCommand
+from velto_cli.cmdline.commands.bundle import BundleCommand
 
 
 def test_configure_defines_bundle_arguments():
@@ -25,7 +25,7 @@ def test_execute_delegates_to_bundle_use_case(monkeypatch):
     container.bundle_release_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.bundle.get_container",
+        "velto_cli.cmdline.commands.bundle.get_container",
         lambda: container,
     )
 
@@ -59,7 +59,7 @@ def test_execute_returns_one_on_error(monkeypatch):
     container.ui = Mock()
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.bundle.get_container",
+        "velto_cli.cmdline.commands.bundle.get_container",
         lambda: container,
     )
 
@@ -83,7 +83,7 @@ def test_execute_runs_check_mode(monkeypatch):
     container.bundle_release_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.bundle.get_container",
+        "velto_cli.cmdline.commands.bundle.get_container",
         lambda: container,
     )
 

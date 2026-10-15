@@ -1,23 +1,23 @@
 from pathlib import Path
 
-from qyro_cli.container import (
+from velto_cli.container import (
     Container,
     get_container,
     set_container,
 )
-from qyro_cli.adapters.cli.console_ui import RichConsoleUI
-from qyro_cli.adapters.package.metadata import PackageMetadata
-from qyro_cli.adapters.persistence.storage import (
+from velto_cli.adapters.cli.console_ui import RichConsoleUI
+from velto_cli.adapters.package.metadata import PackageMetadata
+from velto_cli.adapters.persistence.storage import (
     OsFileSystem,
     SettingsRepository,
 )
-from qyro_cli.adapters.process.runners import (
+from velto_cli.adapters.process.runners import (
     ImportlibModuleRegistry,
     SubprocessAppRunner,
 )
-from qyro_cli.adapters.templates.fallback import FallbackTemplateProvider
-from qyro_cli.application.use_cases.init import InitProjectUseCase
-from qyro_cli.application.use_cases.version import ShowVersionUseCase
+from velto_cli.adapters.templates.fallback import FallbackTemplateProvider
+from velto_cli.application.use_cases.init import InitProjectUseCase
+from velto_cli.application.use_cases.version import ShowVersionUseCase
 
 
 def test_container_creates_adapters():
@@ -81,7 +81,7 @@ def test_get_container_returns_singleton(monkeypatch):
     container = Container()
 
     monkeypatch.setattr(
-        "qyro_cli.container._container",
+        "velto_cli.container._container",
         container,
     )
 
@@ -91,7 +91,7 @@ def test_get_container_returns_singleton(monkeypatch):
 
 def test_get_container_creates_container_when_missing(monkeypatch):
     monkeypatch.setattr(
-        "qyro_cli.container._container",
+        "velto_cli.container._container",
         None,
     )
 
@@ -106,7 +106,7 @@ def test_set_container_replaces_container(monkeypatch):
     second = Container()
 
     monkeypatch.setattr(
-        "qyro_cli.container._container",
+        "velto_cli.container._container",
         first,
     )
 

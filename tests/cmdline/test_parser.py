@@ -1,8 +1,8 @@
 
 import argparse
 
-from qyro_cli.cmdline.models import CommandDefinition
-from qyro_cli.cmdline.parser import build_parser
+from velto_cli.cmdline.models import CommandDefinition
+from velto_cli.cmdline.parser import build_parser
 
 
 def test_build_parser_configures_registered_commands(monkeypatch):
@@ -20,11 +20,12 @@ def test_build_parser_configures_registered_commands(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.parser.get_commands",
+        "velto_cli.cmdline.parser.get_commands",
         lambda: {"test": definition},
     )
 
     parser = build_parser()
+    assert parser.prog == "velto"
     args = parser.parse_args(["test", "--value", "hello"])
 
     assert args.command == "test"
@@ -42,7 +43,7 @@ def test_build_parser_registers_aliases(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.parser.get_commands",
+        "velto_cli.cmdline.parser.get_commands",
         lambda: {
             "version": definition,
             "v": definition,
@@ -71,7 +72,7 @@ def test_build_parser_processes_same_definition_only_once(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.parser.get_commands",
+        "velto_cli.cmdline.parser.get_commands",
         lambda: {
             "version": definition,
             "v": definition,
@@ -92,7 +93,7 @@ def test_build_parser_requires_command(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.parser.get_commands",
+        "velto_cli.cmdline.parser.get_commands",
         lambda: {"test": definition},
     )
 

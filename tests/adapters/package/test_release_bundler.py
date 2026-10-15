@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from qyro_cli.adapters.package.release_bundler import ReleaseBundler
-from qyro_cli.domain.errors import (
+from velto_cli.adapters.package.release_bundler import ReleaseBundler
+from velto_cli.domain.errors import (
     FrozenAppNotFoundError,
     MissingDependencyError,
     QyroError,

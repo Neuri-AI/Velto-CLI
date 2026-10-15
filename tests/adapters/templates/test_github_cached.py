@@ -5,12 +5,12 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from qyro_cli.adapters.templates.github_cached import (
+from velto_cli.adapters.templates.github_cached import (
     GitHubCachedTemplateProvider,
 )
-from qyro_cli.domain.errors import TemplateUnavailableError
-from qyro_cli.domain.project import Binding, TargetPlatform
-from qyro_cli.domain.version import Version
+from velto_cli.domain.errors import TemplateUnavailableError
+from velto_cli.domain.project import Binding, TargetPlatform
+from velto_cli.domain.version import Version
 
 
 class FakeProgress:
@@ -30,7 +30,36 @@ class FakeProgress:
 
 
 class TestGitHubCachedTemplateProvider:
-    def test_resolve_template_builds_expected_repository(
+    @pytest.mark.parametrize(
+        ("binding", "target_platform"),
+        [
+            (Binding.PYSIDE6, TargetPlatform.X86_64),
+            (Binding.KIVY, TargetPlatform.IPHONE),
+            (Binding.PYSIDE6, TargetPlatform.ANDROID),
+            (Binding.TKINTER, TargetPlatform.APPLE_SILICON),
+        ],
+    )
+    def test_resolve_template_uses_shared_repository(
+        self,
+        tmp_path,
+        binding,
+        target_platform,
+    ):
+        provider = GitHubCachedTemplateProvider(
+            organization="Neuri-AI",
+            cache_dir=tmp_path,
+        )
+
+        result = provider._resolve_repo(
+            binding,
+            target_platform,
+        )
+
+        assert result == (
+            "Neuri-AI/velto-boilerplate"
+        )
+
+    def test_cache_name_is_shared_across_bindings_and_platforms(
         self,
         tmp_path,
     ):
@@ -39,61 +68,19 @@ class TestGitHubCachedTemplateProvider:
             cache_dir=tmp_path,
         )
 
-        result = provider._resolve_repo(
-            Binding.PYSIDE6,
-            TargetPlatform.X86_64,
-        )
-
-        assert result == (
-            "Neuri-AI/qyro-boilerplate-qt"
-        )
-
-    def test_resolve_repo_uses_ios(self, tmp_path):
-        provider = GitHubCachedTemplateProvider(
-            organization="Neuri-AI",
-            cache_dir=tmp_path,
-        )
-
-        result = provider._resolve_repo(
-            Binding.KIVY,
-            TargetPlatform.IPHONE,
-        )
-
-        assert result == "Neuri-AI/qyro-boilerplate-kivy-iphone"
-
-    def test_resolve_repo_uses_android(self, tmp_path):
-        provider = GitHubCachedTemplateProvider(
-            organization="Neuri-AI",
-            cache_dir=tmp_path,
-        )
-
-        result = provider._resolve_repo(
-            Binding.PYSIDE6,
-            TargetPlatform.ANDROID,
-        )
-
-        assert result == (
-            "Neuri-AI/qyro-boilerplate-pyside6-android"
-        )
-
-    def test_cache_name_contains_binding_platform_and_version(
-        self,
-        tmp_path,
-    ):
-        provider = GitHubCachedTemplateProvider(
-            organization="Neuri-AI",
-            cache_dir=tmp_path,
-        )
-
-        result = provider._cache_name(
+        desktop_result = provider._cache_name(
             Binding.PYSIDE6,
             TargetPlatform.X86_64,
             Version.parse("1.1.0"),
         )
-
-        assert result == (
-            "template-qt-desktop-1.1.0"
+        mobile_result = provider._cache_name(
+            Binding.KIVY,
+            TargetPlatform.ANDROID,
+            Version.parse("1.1.0"),
         )
+
+        assert desktop_result == "template-velto-1.1.0"
+        assert mobile_result == desktop_result
 
     def test_find_compatible_tags_filters_versions(self, tmp_path):
         provider = GitHubCachedTemplateProvider(
@@ -219,7 +206,7 @@ class TestGitHubCachedTemplateProvider:
             zipball_url="https://example.com/1.0.0.zip",
             cached_path=(
                 tmp_path
-                / "template-qt-desktop-1.0.0"
+                / "template-velto-1.0.0"
             ),
             headers=mock_any_headers(),
         )
@@ -231,7 +218,7 @@ class TestGitHubCachedTemplateProvider:
     ):
         cached_path = (
             tmp_path
-            / "template-qt-desktop-1.1.0"
+            / "template-velto-1.1.0"
         )
         cached_path.mkdir()
 
@@ -274,7 +261,7 @@ class TestGitHubCachedTemplateProvider:
     ):
         cached_path = (
             tmp_path
-            / "template-qt-desktop-1.1.0"
+            / "template-velto-1.1.0"
         )
         cached_path.mkdir()
 
@@ -327,11 +314,11 @@ class TestGitHubCachedTemplateProvider:
     ):
         old_template = (
             tmp_path
-            / "template-qt-desktop-1.0.0"
+            / "template-velto-1.0.0"
         )
         new_template = (
             tmp_path
-            / "template-qt-desktop-1.1.0"
+            / "template-velto-1.1.0"
         )
 
         old_template.mkdir()
@@ -386,7 +373,7 @@ class TestGitHubCachedTemplateProvider:
 
         with pytest.MonkeyPatch.context() as monkeypatch:
             monkeypatch.setattr(
-                "qyro_cli.adapters.templates.github_cached.requests.get",
+                "velto_cli.adapters.templates.github_cached.requests.get",
                 Mock(return_value=response),
             )
 
@@ -436,7 +423,7 @@ class TestGitHubCachedTemplateProvider:
 
         with pytest.MonkeyPatch.context() as monkeypatch:
             monkeypatch.setattr(
-                "qyro_cli.adapters.templates.github_cached.requests.get",
+                "velto_cli.adapters.templates.github_cached.requests.get",
                 Mock(return_value=response),
             )
 
@@ -480,7 +467,7 @@ class TestGitHubCachedTemplateProvider:
 
         with pytest.MonkeyPatch.context() as monkeypatch:
             monkeypatch.setattr(
-                "qyro_cli.adapters.templates.github_cached.requests.get",
+                "velto_cli.adapters.templates.github_cached.requests.get",
                 Mock(return_value=response),
             )
 
@@ -544,7 +531,7 @@ class TestGitHubCachedTemplateProvider:
                 yield content[10:]
 
         with patch(
-            "qyro_cli.adapters.templates.github_cached.requests.get",
+            "velto_cli.adapters.templates.github_cached.requests.get",
             return_value=Response(),
         ):
             cached_path = (
@@ -572,6 +559,6 @@ class TestGitHubCachedTemplateProvider:
 
 def mock_any_headers():
     return {
-        "User-Agent": "Qyro-CLI/1.0",
+        "User-Agent": "Velto-CLI/1.0",
         "Accept": "application/vnd.github+json",
     }

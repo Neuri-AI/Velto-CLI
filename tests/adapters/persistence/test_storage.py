@@ -7,11 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from qyro_cli.adapters.persistence.storage import (
+from velto_cli.adapters.persistence.storage import (
     OsFileSystem,
     SettingsRepository,
 )
-from qyro_cli.domain.errors import MissingSettingError
+from velto_cli.domain.errors import MissingSettingError
 
 
 class TestOsFileSystem:
@@ -80,7 +80,7 @@ class TestOsFileSystem:
 
     def test_default_author(self, monkeypatch):
         monkeypatch.setattr(
-            "qyro_cli.adapters.persistence.storage.getpass.getuser",
+            "velto_cli.adapters.persistence.storage.getpass.getuser",
             lambda: "test-user",
         )
 
@@ -93,7 +93,7 @@ class TestOsFileSystem:
             raise RuntimeError("failure")
 
         monkeypatch.setattr(
-            "qyro_cli.adapters.persistence.storage.getpass.getuser",
+            "velto_cli.adapters.persistence.storage.getpass.getuser",
             raise_error,
         )
 

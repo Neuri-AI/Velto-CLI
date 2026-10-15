@@ -2,8 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from qyro_cli.application.use_cases.start import RunApplicationUseCase
-from qyro_cli.domain.errors import MissingBindingError
+from velto_cli.application.use_cases.start import RunApplicationUseCase
+from velto_cli.domain.errors import MissingBindingError
 
 
 def make_use_case():

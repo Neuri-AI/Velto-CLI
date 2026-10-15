@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 
-from qyro_cli.application.use_cases.clean import CleanProjectUseCase
+from velto_cli.application.use_cases.clean import CleanProjectUseCase
 
 
 def make_use_case():

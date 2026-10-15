@@ -264,7 +264,7 @@ Windows DLL patterns in `exclude_binaries` have no useful effect in a Linux prof
   "bundle_mode": "onedir",
   "paths": [],
   "collect_all": [],
-  "mac_bundle_identifier": "com.qyroteam.qyrokivyapp",
+  "mac_bundle_identifier": "com.veltoteam.veltokivyapp",
   "debug": {"enabled": false, "console": false},
   "optimization": {
     "strip_binaries": true,
@@ -298,7 +298,7 @@ Use `mac_target_architecture` in `mac.json` for the macOS build target. A `unive
     "enabled": true,
     "settings_dir": "settings",
     "resources_dir": "resources",
-    "bundle_path": ".qyro/resources.pak"
+    "bundle_path": ".velto/resources.pak"
   }
 }
 ```
@@ -318,7 +318,7 @@ Choosing another `platform` configures a manifest; it does not provide cross-com
     "enabled": true,
     "settings_dir": "settings",
     "resources_dir": "resources",
-    "bundle_path": ".qyro/resources.pak"
+    "bundle_path": ".velto/resources.pak"
   },
   "bundle": {
     "dmg": {
@@ -360,7 +360,7 @@ Because `release.json` is merged before the build manifest is created, it may al
 | `resource_protection.enabled` | `false` | Encrypts settings/resources into a protected package and compiles the runtime secret module. |
 | `settings_dir` | `settings` | Source settings directory. |
 | `resources_dir` | `resources` | Source resources directory. |
-| `bundle_path` | `.qyro/resources.pak` | Path inside the frozen layout. |
+| `bundle_path` | `.velto/resources.pak` | Path inside the frozen layout. |
 
 `protected_resources` is an alias. Even without full resource protection, the current build compiles a runtime module for encrypted secrets, so the desktop extra, Cython, and a native compiler are required.
 
@@ -480,7 +480,7 @@ This file contains API keys, tokens, licenses, and other protected values requir
 }
 ```
 
-In source mode, Qyro Engine reads the local JSON. During `qyro build`, the CLI excludes the plaintext file, encrypts the complete object with AES-256-GCM, and stores `.qyro/secrets.enc` inside `resources.pak`. The compiled runtime module lets the Engine authenticate, decrypt, and merge it in memory. Application code reads the values through `context.app_settings` or `self.app_settings` in both modes.
+In source mode, Qyro Engine reads the local JSON. During `qyro build`, the CLI excludes the plaintext file, encrypts the complete object with AES-256-GCM, and stores `.velto/secrets.enc` inside `resources.pak`. The compiled runtime module lets the Engine authenticate, decrypt, and merge it in memory. Application code reads the values through `context.app_settings` or `self.app_settings` in both modes.
 
 The Engine uses a shallow merge, so repeat a complete nested object in secrets or prefer flat keys. The CLI uses a deep merge. Do not add a `sign` object or legacy flat signing keys here: the build rejects them instead of embedding signing credentials in the client. Signing and notarization values belong exclusively in `settings/sign.json`.
 

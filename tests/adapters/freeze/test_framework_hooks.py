@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from qyro_cli.adapters.freeze.framework_hooks import FrameworkHookResolver
-from qyro_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
-from qyro_cli.domain.build import FreezeManifest
-from qyro_cli.domain.project import Binding
+from velto_cli.adapters.freeze.framework_hooks import FrameworkHookResolver
+from velto_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
+from velto_cli.domain.build import FreezeManifest
+from velto_cli.domain.project import Binding
 
 
 @pytest.mark.parametrize("binding", list(Binding))
@@ -177,7 +177,7 @@ def test_framework_hooks_exclude_local_secret_and_signing_files(tmp_path):
     assert not any("sign.json" in value for value in add_data_values)
 
 
-@pytest.mark.parametrize("bundle_path", [".qyro/resources.pak", "custom/assets.pak"])
+@pytest.mark.parametrize("bundle_path", [".velto/resources.pak", "custom/assets.pak"])
 def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monkeypatch, bundle_path):
     import shutil
     import sys
@@ -208,7 +208,7 @@ def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monk
     cmd = freezer.build_command(project_root, manifest)
 
     pak_path = project_root / bundle_path
-    external_secrets_path = project_root / ".qyro" / "secrets.json"
+    external_secrets_path = project_root / ".velto" / "secrets.json"
     runtime_dir = pak_path.parent
 
     assert pak_path.exists()
@@ -217,9 +217,9 @@ def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monk
     assert runtime_candidates
     assert "--add-data" in cmd
     add_data_values = [cmd[i + 1] for i, token in enumerate(cmd) if token == "--add-data"]
-    assert any(".qyro/resources.pak" in value for value in add_data_values)
+    assert any(".velto/resources.pak" in value for value in add_data_values)
     assert any("runtime" in value and (".so" in value or ".pyd" in value) for value in add_data_values)
-    assert not any(".qyro/secrets.json" in value for value in add_data_values)
+    assert not any(".velto/secrets.json" in value for value in add_data_values)
 
     # Simulate PyInstaller's data layout and read it through the real runtime:
     # neither plaintext settings nor a source working directory is available.

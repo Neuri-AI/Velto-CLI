@@ -2,7 +2,7 @@
 import argparse
 from unittest.mock import Mock
 
-from qyro_cli.cmdline.commands.init import InitCommand
+from velto_cli.cmdline.commands.init import InitCommand
 
 
 def test_configure_defines_init_arguments():
@@ -73,7 +73,7 @@ def test_execute_delegates_to_init_use_case(monkeypatch):
     container.init_project_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.init.get_container",
+        "velto_cli.cmdline.commands.init.get_container",
         lambda: container,
     )
 
@@ -114,7 +114,7 @@ def test_execute_passes_none_for_optional_arguments(monkeypatch):
     container.init_project_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.init.get_container",
+        "velto_cli.cmdline.commands.init.get_container",
         lambda: container,
     )
 

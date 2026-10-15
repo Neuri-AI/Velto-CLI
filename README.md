@@ -1,32 +1,32 @@
 <p align="center">
   <img
-    src="https://ik.imagekit.io/kummiktgaiq/ppg/Qyro-logo.svg?updatedAt=1755215983279"
-    alt="Qyro Logo"
+    src="https://ik.imagekit.io/kummiktgaiq/ppg/velto-logo.svg?updatedAt=1755215983279"
+    alt="velto Logo"
     width="50%"
   >
 </p>
 
 > [!WARNING]
-> **Qyro CLI is currently in alpha.** Commands, flags, templates, packaging
+> **Velto CLI is currently in alpha.** Commands, flags, templates, packaging
 > behavior, and configuration formats may change between releases.
 >
 > Supported workflows currently focus on desktop applications. Mobile
 > packaging is experimental and is not part of the supported production
 > workflow.
 
-# Qyro CLI
+# Velto CLI
 
 > **The official developer CLI and project orchestrator for the
-> [Qyro](https://github.com/Neuri-AI/qyro) desktop and mobile application
+> [velto](https://github.com/Neuri-AI/velto) desktop and mobile application
 > ecosystem.**
 
-[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://python.org)
-[![Qyro Platforms Tests](https://github.com/Neuri-AI/qyro-cli/actions/workflows/matrix.yml/badge.svg)](https://github.com/Neuri-AI/qyro-cli/actions/workflows/matrix.yml)
-![GitHub Release](https://img.shields.io/github/v/release/Neuri-AI/qyro-cli?include_prereleases&display_name=release&color=stable)
-![GitHub Issues](https://img.shields.io/github/issues/Neuri-AI/qyro-cli)
-![GitHub Issues Closed](https://img.shields.io/github/issues-closed/Neuri-AI/qyro-cli?color=green)
-![GitHub forks](https://img.shields.io/github/forks/Neuri-AI/qyro-cli)
-![GitHub stars](https://img.shields.io/github/stars/Neuri-AI/qyro-cli)
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://python.org)
+[![velto Platforms Tests](https://github.com/Neuri-AI/velto-cli/actions/workflows/matrix.yml/badge.svg)](https://github.com/Neuri-AI/velto-cli/actions/workflows/matrix.yml)
+![GitHub Release](https://img.shields.io/github/v/release/Neuri-AI/velto-cli?include_prereleases&display_name=release&color=stable)
+![GitHub Issues](https://img.shields.io/github/issues/Neuri-AI/velto-cli)
+![GitHub Issues Closed](https://img.shields.io/github/issues-closed/Neuri-AI/velto-cli?color=green)
+![GitHub forks](https://img.shields.io/github/forks/Neuri-AI/velto-cli)
+![GitHub stars](https://img.shields.io/github/stars/Neuri-AI/velto-cli)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/neuri)
 
@@ -35,15 +35,14 @@
 > extra, Android/iOS targets, and Kivy mobile workflows are incomplete and may
 > change without notice.
 >
-> The currently supported Qyro CLI workflow is desktop-only on Windows, macOS,
+> The currently supported velto CLI workflow is desktop-only on Windows, macOS,
 > and Linux.
 
 ---
 
 ## Features
 
-- Unified Multi-Framework Support:** Scaffold projects for **PySide6**,
-  **PyQt6**, **PyQt5**, **PySide2**, **Kivy**, or **Tkinter**.
+- Scaffold projects for Velto Framework-based applications.
 - Smart Template Resolution:** Uses template providers with fallback
   support for robust initialization workflows.
 - Packaging & Freezing Ready:** Native desktop freezing with PyInstaller.
@@ -68,7 +67,7 @@ init → start → build → bundle
 ```
 
 > Table last validated: **2026-10-02**  
-> CI run: [#37052349565](https://github.com/Neuri-AI/qyro-cli/actions/runs/37052349565)
+> CI run: [#37052349565](https://github.com/Neuri-AI/velto-cli/actions/runs/37052349565)
 
 | Framework | Platform | Python 3.10 | Python 3.11 | Python 3.12 | Python 3.13 | Python 3.14 | Notes |
 | --------- | -------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----- |
@@ -113,20 +112,20 @@ framework, dependency state, and CI environment used during testing.
 
 ```bash
 # Using pip
-pip install "qyro-cli[desktop]"
+pip install "velto-cli[desktop]"
 
 # Using Poetry
-poetry add qyro-cli -E desktop
+poetry add velto-cli -E desktop
 ```
 
 The core package can also be installed without the desktop extra:
 
 ```bash
 # Using pip
-pip install qyro-cli
+pip install velto-cli
 
 # Using Poetry
-poetry add qyro-cli
+poetry add velto-cli
 ```
 
 > [!IMPORTANT]
@@ -142,10 +141,10 @@ poetry add qyro-cli
 
 ```bash
 # Using pip
-pip install "qyro-cli[mobile]"
+pip install "velto-cli[mobile]"
 
 # Using Poetry
-poetry add qyro-cli -E mobile
+poetry add velto-cli -E mobile
 ```
 
 The `[all]` extra includes experimental mobile dependencies and is not
@@ -153,18 +152,18 @@ recommended for production use:
 
 ```bash
 # Using pip
-pip install "qyro-cli[all]"
+pip install "velto-cli[all]"
 
 # Using Poetry
-poetry add qyro-cli -E all
+poetry add velto-cli -E all
 ```
 
 ---
 
-## Qyro Settings Builder
+## Velto Settings Builder
 
-The **Qyro Settings Builder** provides a visual interface for preparing
-application, platform-specific, and release configuration files used by Qyro
+The **velto Settings Builder** provides a visual interface for preparing
+application, platform-specific, and release configuration files used by velto
 projects.
 
 It is the recommended starting point for creating the non-secret JSON files.
@@ -178,10 +177,10 @@ It helps simplify:
 
 Open the builder:
 
-[Open Qyro Settings Builder](https://qyro-settings-builder.up.railway.app/)
+[Open Velto Settings Builder](https://velto-settings-builder.up.railway.app/)
 
 Generated files can be placed in the project's `settings/` directory and
-reviewed before running Qyro CLI commands.
+reviewed before running Velto CLI commands.
 
 > [!NOTE]
 > The Settings Builder is an auxiliary tool. Always review generated files
@@ -196,7 +195,7 @@ and `secrets.json`.
 
 ## 💻 Quick Start
 
-Qyro CLI provides the following desktop workflow:
+Velto CLI provides the following desktop workflow:
 
 1. Initialize a project from a framework template.
 2. Run the application from source.
@@ -207,25 +206,25 @@ Qyro CLI provides the following desktop workflow:
 ### 1) Initialize a project
 
 ```bash
-qyro init --name my-app
+velto init --name my-app
 ```
 
-You can preselect a binding and template version:
+You can preselect a framework and template version:
 
 ```bash
-qyro init \
+velto init \
   --name my-app \
-  --binding PySide6 \
+  --framework pyside6 \
   --template-version 1.0.x
 ```
 
 For non-interactive initialization:
 
 ```bash
-qyro init \
+velto init \
   --name my-app \
   --target-platform desktop \
-  --binding PySide6 \
+  --framework pyside6 \
   --app-name "My App" \
   --version 1.0.0 \
   --author "Your Name" \
@@ -249,11 +248,11 @@ Supported initialization options:
 Notes:
 
 - `desktop` maps to the desktop template target.
-- If these flags are omitted, `qyro init` uses the interactive wizard.
+- If these flags are omitted, `velto init` uses the interactive wizard.
 - Mobile targets are experimental and are not part of the supported desktop
   workflow.
 
-Supported bindings:
+Supported frameworks:
 
 - `PySide6`
 - `PyQt6`
@@ -272,38 +271,38 @@ Run this command from the generated project directory:
 
 ```bash
 cd my-app
-qyro start
+velto start
 ```
 
-`qyro start` currently runs the application from source without release flag
+`velto start` currently runs the application from source without release flag
 variants.
 
 ### 3) Freeze executable artifacts
 
-Run these commands from a Qyro project directory:
+Run these commands from a velto project directory:
 
 ```bash
 # Default desktop target with the release profile
-qyro build
+velto build
 
 # Single executable
-qyro build --onefile
+velto build --onefile
 
 # Equivalent mode syntax
-qyro build --mode onefile
+velto build --mode onefile
 
 # Platform target override
-qyro build --target mac
-qyro build --target windows
-qyro build --target linux
+velto build --target mac
+velto build --target windows
+velto build --target linux
 
 # Additional controls
-qyro build --debug --console --uac --clean --interactive
+velto build --debug --console --uac --clean --interactive
 ```
 
 ### Protected resource encryption
 
-Qyro can protect project resources during `qyro build` by encrypting
+velto can protect project resources during `velto build` by encrypting
 `settings/` and `resources/` into a single protected package.
 
 Enable in `settings/release.json`:
@@ -314,12 +313,12 @@ Enable in `settings/release.json`:
     "enabled": true,
     "settings_dir": "settings",
     "resources_dir": "resources",
-    "bundle_path": ".qyro/resources.pak"
+    "bundle_path": ".velto/resources.pak"
   }
 }
 ```
 
-When enabled, Qyro:
+When enabled, velto:
 
 - Generates a random secret for each build.
 - Compiles a native `runtime` module with Cython (no plaintext `.py` secret in output).
@@ -338,13 +337,13 @@ and `resources/`.
 
 Secrets protection is part of the frozen desktop build even when full
 `settings/` and `resources/` protection is disabled. The plaintext source file
-is excluded; the encrypted payload is packaged for Qyro Engine to decrypt and
+is excluded; the encrypted payload is packaged for velto Engine to decrypt and
 merge at runtime.
 
 Output artifacts inside the app bundle/freeze layout include:
 
-- `.qyro/resources.pak`
-- `.qyro/runtime*.so` on macOS/Linux or `.qyro/runtime*.pyd` on Windows
+- `.velto/resources.pak`
+- `.velto/runtime*.so` on macOS/Linux or `.velto/runtime*.pyd` on Windows
 
 Notes:
 
@@ -362,28 +361,28 @@ Notes:
 
 ### 4) Bundle for distribution
 
-Run these commands from a Qyro project directory:
+Run these commands from a velto project directory:
 
 ```bash
 # Select the default format for the host operating system
-qyro bundle
+velto bundle
 
 # Explicit platform and format
-qyro bundle --platform mac --format dmg
-qyro bundle --platform windows --format nsis
-qyro bundle --platform linux --format tar.gz
-qyro bundle --platform linux --format deb
-qyro bundle --platform linux --format rpm
-qyro bundle --platform linux --format arch
+velto bundle --platform mac --format dmg
+velto bundle --platform windows --format nsis
+velto bundle --platform linux --format tar.gz
+velto bundle --platform linux --format deb
+velto bundle --platform linux --format rpm
+velto bundle --platform linux --format arch
 
 # Include an additional ZIP and use a custom output directory
-qyro bundle --zip --release-dir release
+velto bundle --zip --release-dir release
 ```
 
 ### Validate before packaging
 
 ```bash
-qyro bundle --check
+velto bundle --check
 ```
 
 This validates dependencies and `release` settings, such as DMG backgrounds
@@ -396,7 +395,7 @@ and extra files, without generating artifacts.
 When packaging with:
 
 ```bash
-qyro bundle --platform windows --format nsis
+velto bundle --platform windows --format nsis
 ```
 
 you can customize installer behavior using `bundle.nsis` in
@@ -440,47 +439,47 @@ Example:
 Validate NSIS options before generating the installer:
 
 ```bash
-qyro bundle --check --platform windows --format nsis
+velto bundle --check --platform windows --format nsis
 ```
 
 ---
 
 ## Clean outputs
 
-Run these commands from a Qyro project directory:
+Run these commands from a velto project directory:
 
 ```bash
 # Clean the freeze directory
-qyro clean
+velto clean
 
 # Also clean the release directory
-qyro clean --release
+velto clean --release
 ```
 
 ---
 
 ## Sign compiled artifacts
 
-Run these commands from a Qyro project directory:
+Run these commands from a velto project directory:
 
 ```bash
 # Preflight validation only
-qyro sign --check --platform windows
-qyro sign --check --platform mac
+velto sign --check --platform windows
+velto sign --check --platform mac
 
 # Sign frozen binaries or application bundles
-qyro sign --platform windows
-qyro sign --platform mac
+velto sign --platform windows
+velto sign --platform mac
 
 # macOS notarization flow
-qyro sign \
+velto sign \
   --platform mac \
   --notarize \
   --staple \
-  --keychain-profile "QYRO-NOTARY"
+  --keychain-profile "velto-NOTARY"
 
 # Skip Gatekeeper assessment if required
-qyro sign \
+velto sign \
   --platform mac \
   --notarize \
   --staple \
@@ -492,7 +491,7 @@ qyro sign \
 ## Signing guide
 
 Use the local-only `settings/sign.json` file to configure signing and
-notarization. Qyro loads it only for `qyro sign`, after the release profile,
+notarization. velto loads it only for `velto sign`, after the release profile,
 and excludes it from frozen applications and protected resource packages.
 Keep release packaging options in `settings/release.json`.
 
@@ -528,16 +527,16 @@ Recommended flow:
 
 ```bash
 # 1. Build artifacts
-qyro build --target windows
+velto build --target windows
 
 # 2. Validate signing prerequisites
-qyro sign --check --platform windows
+velto sign --check --platform windows
 
 # 3. Sign supported binaries in build/
-qyro sign --platform windows
+velto sign --platform windows
 ```
 
-By default, Qyro signs supported binary types in the freeze output, such as
+By default, velto signs supported binary types in the freeze output, such as
 `.exe`, `.dll`, `.msi`, and `.cab`.
 
 ### macOS signing and notarization
@@ -563,7 +562,7 @@ Example `settings/sign.json`:
         "enabled": true,
         "staple": true,
         "assess_gatekeeper": true,
-        "keychain_profile": "QYRO-NOTARY"
+        "keychain_profile": "velto-NOTARY"
       }
     }
   }
@@ -579,20 +578,20 @@ Recommended flow:
 
 ```bash
 # 1. Build the macOS application bundle
-qyro build --target mac
+velto build --target mac
 
 # 2. Validate signing and notarization prerequisites
-qyro sign --check --platform mac
+velto sign --check --platform mac
 
 # 3. Sign the application
-qyro sign --platform mac
+velto sign --platform mac
 
 # 4. Sign, notarize, and staple
-qyro sign \
+velto sign \
   --platform mac \
   --notarize \
   --staple \
-  --keychain-profile "QYRO-NOTARY"
+  --keychain-profile "velto-NOTARY"
 ```
 
 Supported notarization authentication options:
@@ -601,7 +600,7 @@ Supported notarization authentication options:
 - `key_path` + `key_id` + optional `issuer`
 - `apple_id` + `team_id` + `app_password`
 
-`qyro sign` reads `sign.mac.identity`, entitlements, and notarization
+`velto sign` reads `sign.mac.identity`, entitlements, and notarization
 credentials from `settings/sign.json`. The build command does not activate
 that profile.
 
@@ -609,19 +608,19 @@ that profile.
 
 ## Secret management
 
-Qyro supports a local-only secrets file for API keys, service tokens, license
+velto supports a local-only secrets file for API keys, service tokens, license
 data, and other protected values that the application needs at runtime:
 
 - `settings/secrets.json`.
 
-Qyro loads base and profile settings first, then applies `secrets.json` as the
+velto loads base and profile settings first, then applies `secrets.json` as the
 highest-precedence override.
 
-During a frozen desktop build, Qyro encrypts `settings/secrets.json` with
+During a frozen desktop build, velto encrypts `settings/secrets.json` with
 AES-256-GCM and embeds it inside
 `resources.pak` as an internal payload (for example,
-`.qyro/secrets.enc` inside the package ZIP).
-No standalone `.qyro/secrets.json` file is emitted in the distributed app.
+`.velto/secrets.enc` inside the package ZIP).
+No standalone `.velto/secrets.json` file is emitted in the distributed app.
 The Engine decrypts the payload in memory and exposes the values through
 `app_settings`, so application code uses the same settings API in source and
 frozen modes.
@@ -637,7 +636,7 @@ Example `settings/secrets.json`:
 }
 ```
 
-Do not put code-signing or notarization credentials in this file. Qyro encrypts
+Do not put code-signing or notarization credentials in this file. velto encrypts
 and packages its complete object in the client build, because the Engine must
 be able to recover those values at runtime. Put all signing-only values in
 `settings/sign.json`, which is never bundled. The build rejects `sign` and the
@@ -670,18 +669,18 @@ revision or operating-system update.
 
 ## CLI Commands Reference
 
-Commands marked as requiring a project must be run from a generated Qyro
+Commands marked as requiring a project must be run from a generated velto
 project directory.
 
 | Command | Project required | Flags / Args | Description |
 | :--- | :---: | :--- | :--- |
-| `qyro init` | No | `-n, --name`, `-b, --binding`, `--template-version` | Initialize a new project. |
-| `qyro start` | Yes | None | Run the application from source. |
-| `qyro build` | Yes | `-m, --mode`, `--onefile`, `--debug`, `--console`, `--uac`, `-p, --profile`, `-c, --clean`, `-i, --interactive`, `--target`, `--init-spec` | Freeze/build artifacts. |
-| `qyro bundle` | Yes | `--release-dir`, `--no-resources`, `--zip`, `--platform`, `--format`, `--check` | Create distributable packages or run preflight checks. |
-| `qyro sign` | Yes | `--platform`, `--check`, `--notarize`, `--staple`, `--no-assess`, `--keychain-profile` | Sign compiled artifacts and optionally notarize/staple macOS apps. |
-| `qyro clean` | Yes | `--release` | Remove generated build artifacts. |
-| `qyro version` | No | None | Show version information. |
+| `velto init` | No | `-n, --name`, `-b, --framework`, `--template-version` | Initialize a new project. |
+| `velto start` | Yes | None | Run the application from source. |
+| `velto build` | Yes | `-m, --mode`, `--onefile`, `--debug`, `--console`, `--uac`, `-p, --profile`, `-c, --clean`, `-i, --interactive`, `--target`, `--init-spec` | Freeze/build artifacts. |
+| `velto bundle` | Yes | `--release-dir`, `--no-resources`, `--zip`, `--platform`, `--format`, `--check` | Create distributable packages or run preflight checks. |
+| `velto sign` | Yes | `--platform`, `--check`, `--notarize`, `--staple`, `--no-assess`, `--keychain-profile` | Sign compiled artifacts and optionally notarize/staple macOS apps. |
+| `velto clean` | Yes | `--release` | Remove generated build artifacts. |
+| `velto version` | No | None | Show version information. |
 
 ---
 
@@ -757,7 +756,7 @@ shape as `bundle.extra_files`.
 When DMG customization is configured, `create-dmg` is required.
 
 Without custom DMG options, bundling can fall back to native `hdiutil` on macOS.
-`hdiutil` does not support `bundle.dmg.extra_files`, so Qyro rejects that
+`hdiutil` does not support `bundle.dmg.extra_files`, so velto rejects that
 configuration rather than generating a DMG without the requested files.
 
 ---
@@ -787,9 +786,9 @@ npm install -g create-dmg
 
 ## Supported framework ecosystem
 
-`qyro-cli` generates applications that integrate with Qyro adapters:
+`velto-cli` generates applications that integrate with velto adapters:
 
-| Binding | Adapter | Best For |
+| framework | Adapter | Best For |
 | :--- | :--- | :--- |
 | **PySide6** | `PySide6Adapter` | Modern Qt 6 desktop applications. |
 | **PyQt6** | `PyQt6Adapter` | Feature-complete Qt 6 desktop applications. |
@@ -817,8 +816,8 @@ Projects can be configured with modular add-ons:
 
 ## Notes for developers
 
-- `qyro bundle --check` is the fastest way to validate release readiness in CI.
-- `qyro clean --release` is useful before reproducible release builds.
+- `velto bundle --check` is the fastest way to validate release readiness in CI.
+- `velto clean --release` is useful before reproducible release builds.
 - If a bundle step fails, inspect the exact command output and step-specific
   logs.
 - Compatibility results should be refreshed when supported Python versions,
@@ -828,7 +827,7 @@ Projects can be configured with modular add-ons:
 
 ## 🤝 Contributing
 
-Contributions to `qyro-cli` and the Qyro ecosystem are welcome.
+Contributions to `velto-cli` and the velto ecosystem are welcome.
 
 1. Fork the repository on GitHub.
 2. Create a feature branch:
@@ -870,6 +869,6 @@ MIT. See [LICENSE](LICENSE).
 - **Organization:** [Neuri](https://github.com/Neuri-AI)
 - **Lead Maintainer:** Luis Alfredo De Los Reyes
   ([luisalfredoreyes98@gmail.com](mailto:luisalfredoreyes98@gmail.com))
-- **Ecosystem:** [Qyro](https://github.com/Neuri-AI/qyro) •
-  [Qyro CLI](https://github.com/Neuri-AI/qyro-cli) •
+- **Ecosystem:** [velto](https://github.com/Neuri-AI/velto) •
+  [velto CLI](https://github.com/Neuri-AI/velto-cli) •
   [Boilerplates](https://github.com/Neuri-AI)
