@@ -3,6 +3,7 @@ qyro.application.use_cases.init_project
 Orchestrates project initialization following Clean Architecture.
 """
 
+import json
 from pathlib import Path
 
 from velto_cli.application.ports import (
@@ -145,8 +146,6 @@ class InitProjectUseCase:
         )
 
         addon_options = {
-            "Hot Reloading (⚠️ Experimental)": AddonModule.HOTRL,
-            "Pydux (Redux-style State Management)": AddonModule.PYDUX,
             "Sentry (Crash Reporting Integration)": AddonModule.SENTRY,
             "Requests (HTTP Library)": AddonModule.REQUESTS,
         }
@@ -156,7 +155,7 @@ class InitProjectUseCase:
             TargetPlatform.ANDROID,
         ):
             addon_options = {
-                "Pydux (Redux-style State Management)": AddonModule.PYDUX,
+                "Requests (HTTP Library)": AddonModule.REQUESTS,
             }
 
         if addons is None:
@@ -258,6 +257,7 @@ class InitProjectUseCase:
                 **config.as_base_settings(),
             },
         )
+        self._persist_base_settings(destination, config)
 
         self.ui.info("Installing project dependencies...")
         self.dependencies.install(str(destination))
@@ -274,5 +274,29 @@ class InitProjectUseCase:
             )
 
         self.ui.info(
-            "  [bold #ff8c00]qyro start[/bold #ff8c00]"
+            "  [bold #ff8c00]velto start[/bold #ff8c00]"
+        )
+
+    def _persist_base_settings(
+        self,
+        destination: Path,
+        config: ProjectConfig,
+    ) -> None:
+        """Ensure generated projects include the CLI's canonical settings."""
+        base_settings_path = destination / "settings" / "base.json"
+
+        try:
+            rendered_settings = json.loads(
+                self.fs.read_text(str(base_settings_path))
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            rendered_settings = {}
+
+        if not isinstance(rendered_settings, dict):
+            rendered_settings = {}
+
+        rendered_settings.update(config.as_base_settings())
+        self.fs.write_text(
+            str(base_settings_path),
+            json.dumps(rendered_settings, indent=4),
         )

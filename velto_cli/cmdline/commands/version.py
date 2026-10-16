@@ -1,5 +1,5 @@
 """
-Implementation of the `qyro version` command.
+Implementation of the `velto version` command.
 """
 
 import argparse
@@ -10,10 +10,10 @@ from velto_cli.container import get_container
 
 @command(
     "version",
-    help="Show the current Qyro engine version.",
+    help="Show the current Velto CLI version.",
 )
 class VersionCommand:
-    """Display the current Qyro version."""
+    """Display the current Velto CLI version."""
 
     @staticmethod
     def configure(parser: argparse.ArgumentParser) -> None:

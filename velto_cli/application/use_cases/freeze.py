@@ -203,8 +203,8 @@ class FreezeDesktopUseCase:
             or self._settings.get_optional("entry_point", "main.py")
         )
         binding = (
-            build_data.get("binding")
-            or self._settings.get_optional("binding", "PySide6")
+            build_data.get("framework")
+            or self._settings.get_optional("framework", "PySide6")
         )
 
         # Target platform

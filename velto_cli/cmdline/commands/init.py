@@ -6,14 +6,29 @@ import argparse
 
 from velto_cli.cmdline.registry import command
 from velto_cli.container import get_container
+from velto_cli.domain.project import Binding
+
+
+_FRAMEWORK_CHOICES = tuple(binding.value for binding in Binding)
+
+
+def _parse_framework(value: str) -> str:
+    """Normalize framework input to its canonical display name."""
+    normalized = value.strip().lower()
+    for framework in _FRAMEWORK_CHOICES:
+        if framework.lower() == normalized:
+            return framework
+    raise argparse.ArgumentTypeError(
+        f"invalid framework: {value!r} (choose from {', '.join(_FRAMEWORK_CHOICES)})"
+    )
 
 
 @command(
     "init",
-    help="Initialize a new Qyro project.",
+    help="Initialize a new Velto project.",
 )
 class InitCommand:
-    """Initialize a new Qyro project."""
+    """Initialize a new Velto project."""
 
     @staticmethod
     def configure(parser: argparse.ArgumentParser) -> None:
@@ -29,17 +44,11 @@ class InitCommand:
         )
 
         parser.add_argument(
-            "-b",
-            "--binding",
-            choices=[
-                "PySide6",
-                "PyQt6",
-                "PyQt5",
-                "PySide2",
-                "Kivy",
-                "Tkinter",
-            ],
-            help="Pre-select the UI binding.",
+            "-f",
+            "--framework",
+            type=_parse_framework,
+            choices=_FRAMEWORK_CHOICES,
+            help="Pre-select the UI framework.",
         )
 
         parser.add_argument(
@@ -116,7 +125,7 @@ class InitCommand:
     def execute(args: argparse.Namespace) -> int:
         get_container().init_project_use_case.execute(
             target_dir=args.name,
-            default_binding=args.binding,
+            default_binding=args.framework,
             template_version=args.template_version,
             target_platform=args.target_platform,
             app_name=args.app_name,

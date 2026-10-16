@@ -37,7 +37,7 @@ class RunApplicationUseCase:
     def execute(self) -> None:
         self.guards.require_existing_project()
 
-        raw_binding = self.settings.get("binding")
+        raw_binding = self.settings.get_optional("framework")
         try:
             binding = Binding.parse(raw_binding)
         except InvalidBindingError:

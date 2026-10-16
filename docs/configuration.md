@@ -22,7 +22,7 @@ my-app/
 
 | File | Used by | Purpose |
 | --- | --- | --- |
-| `settings/base.json` | CLI and Qyro Engine | Application identity, entry point, binding, and common values. |
+| `settings/base.json` | CLI and Qyro Engine | Application identity, entry point, framework, and common values. |
 | Platform JSON | CLI and Qyro Engine | Host-specific overrides. |
 | `build.json` | `qyro build` only | Freezer-specific override at the project root. |
 | `settings/release.json` | `build`, `bundle`, and `sign` | Release build, packaging, and protection options. |
@@ -53,7 +53,7 @@ Invalid JSON, and JSON whose top level is not an object, is silently ignored by 
   "entry_point": "main.py",
   "addons": [],
   "version": "1.0.0",
-  "binding": "pyside6",
+  "framework": "pyside6",
   "icon": "resources/base/app.ico",
   "hidden_imports": [
     "__future__",
@@ -70,7 +70,7 @@ Invalid JSON, and JSON whose top level is not an object, is silently ignored by 
 | `author` | string | `Developer` | Author/publisher metadata and input to the suggested macOS bundle ID. |
 | `version` | string | `1.0.0` | Artifact/package version. SemVer is recommended but not enforced by build. |
 | `entry_point` | path string | `main.py` | Python script to run and freeze. |
-| `binding` | string | `PySide6` | `PySide6`, `PyQt6`, `PyQt5`, `PySide2`, `Kivy`, or `Tkinter`. Parsing is case-insensitive. |
+| `framework` | string | `PySide6` | `PySide6`, `PyQt6`, `PyQt5`, `PySide2`, `Kivy`, or `Tkinter`. Parsing is case-insensitive. |
 | `icon` | path string | unset | Icon passed to PyInstaller. `app_icon` is an Engine alias but is not a build alias. |
 | `freeze_dir` | path string | `build` | Directory used by clean, bundle, sign, and their guards. The current freezer always writes to `build`, so do not customize this value until both paths are wired together. |
 | `hidden_imports` | string array | `[]` | Dynamic modules, emitted as PyInstaller `--hidden-import` arguments. |
@@ -78,7 +78,7 @@ Invalid JSON, and JSON whose top level is not an object, is silently ignored by 
 | `identifier` | string | Engine default | Runtime metadata; use `mac_bundle_identifier` for the macOS bundle. |
 | `description` | string | empty | Runtime metadata. Current package adapters do not propagate it automatically. |
 
-`qyro start` requires `binding` and `entry_point` to exist in loaded settings and checks that the entry point exists. Build has the defaults shown above, so an incomplete file can build yet fail with `qyro start`.
+`velto start` requires `framework` and `entry_point` to exist in loaded settings and checks that the entry point exists. Build has the defaults shown above, so an incomplete file can build yet fail with `velto start`.
 
 Framework hooks already add core modules for the selected binding and exclude competing GUI bindings. Add a hidden import when a module is loaded dynamically and PyInstaller cannot discover it. Use `collect_all` instead when a package also needs data files or native libraries.
 
@@ -303,7 +303,7 @@ Use `mac_target_architecture` in `mac.json` for the macOS build target. A `unive
 }
 ```
 
-Supported keys are `app_name`, `author`, `version`, `entry_point`, `binding`, `platform`, `bundle`/`bundle_mode`, `uac`, `debug`, `optimization`, `hidden_imports`, `icon`, `mac_bundle_identifier`/`bundle_identifier`, `extra_args`, `paths`, `collect_all`, and `resource_protection`/`protected_resources`.
+Supported keys are `app_name`, `author`, `version`, `entry_point`, `framework`, `platform`, `bundle`/`bundle_mode`, `uac`, `debug`, `optimization`, `hidden_imports`, `icon`, `mac_bundle_identifier`/`bundle_identifier`, `extra_args`, `paths`, `collect_all`, and `resource_protection`/`protected_resources`.
 
 For most scalars, `build.json` wins over merged settings. `hidden_imports`, `paths`, `collect_all`, and `extra_args` are concatenated with settings; only hidden imports are deduplicated. CLI flags win for bundle mode, debug, console, UAC, and clean behavior.
 
@@ -519,7 +519,7 @@ Test the artifact, then enable one optimization at a time. Switch to `onefile` o
 ## Release checklist
 
 - All entry point, icon, certificate, entitlement, background, and extra-file paths exist.
-- The configured binding is installed in the Python environment running Qyro CLI.
+- The configured framework is installed in the Python environment running Velto CLI.
 - Each target was built on its native operating system.
 - Exclusions were tested against network/TLS, image formats, styles, printing, multimedia, and every optional feature the app uses.
 - `qyro sign --check` and `qyro bundle --check` succeed where applicable.

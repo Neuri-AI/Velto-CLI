@@ -191,7 +191,7 @@ def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monk
     resources_dir = project_root / "resources"
     settings_dir.mkdir(parents=True)
     resources_dir.mkdir(parents=True)
-    (settings_dir / "base.json").write_text('{"app_name": "MyApp", "binding": "PySide6"}', encoding="utf-8")
+    (settings_dir / "base.json").write_text('{"app_name": "MyApp", "framework": "PySide6"}', encoding="utf-8")
     (settings_dir / "secrets.json").write_text('{"api": {"token": "local-secret"}}', encoding="utf-8")
     (resources_dir / "logo.png").write_text("png", encoding="utf-8")
 
@@ -233,7 +233,7 @@ def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monk
     monkeypatch.setattr(sys, "_MEIPASS", str(frozen_root), raising=False)
     env = SystemEnvironmentAdapter()
     settings = JsonSettingsAdapter(env).get_raw_settings()
-    assert settings["binding"] == "PySide6"
+    assert settings["framework"] == "PySide6"
     assert settings["api"]["token"] == "local-secret"
     extracted = ProtectedResourceBundle.get_extracted_root(env)
     assert (extracted / "resources/logo.png").read_text(encoding="utf-8") == "png"

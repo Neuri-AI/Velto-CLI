@@ -22,7 +22,7 @@ QUESTIONARY_STYLE = Style([
     ("question", "fg:#f1f5f9 bold"),
     ("answer", "fg:#fdba74 bold"),
     ("pointer", "fg:#fb923c bold"),
-    ("highlighted", "fg:#fb923c bg:default bold"), 
+    ("highlighted", "fg:#fb923c bg:default bold"),
     ("selected", "fg:#fdba74 bg:default"),
     ("instruction", "fg:#9ca3af"),
 ])
@@ -34,6 +34,8 @@ custom_theme = Theme(
         "prompt.default": "bold #ff8c00",
     }
 )
+
+
 class RichConsoleUI:
     def __init__(self, console: Console | None = None):
         self._console = console or Console(
@@ -77,13 +79,13 @@ class RichConsoleUI:
 
         logo = Text(
             "\n"
-            " ██████╗ ██╗   ██╗██████╗  ██████╗\n"
-            "██╔═══██╗╚██╗ ██╔╝██╔══██╗██╔═══██╗\n"
-            "██║   ██║ ╚████╔╝ ██████╔╝██║   ██║\n"
-            "██║▄▄ ██║  ╚██╔╝  ██╔══██╗██║   ██║\n"
-            "╚██████╔╝   ██║   ██║  ██║╚██████╔╝\n"
-            " ╚══▀▀═╝    ╚═╝   ╚═╝  ╚═╝ ╚═════╝\n",
-            style="bold #ff8c00",
+            "██╗   ██╗███████╗██╗  ████████╗ ██████╗ \n"
+            "██║   ██║██╔════╝██║  ╚══██╔══╝██╔═══██╗\n"
+            "██║   ██║█████╗  ██║     ██║   ██║   ██║\n"
+            "╚██╗ ██╔╝██╔══╝  ██║     ██║   ██║   ██║\n"
+            " ╚████╔╝ ███████╗███████╗██║   ╚██████╔╝\n"
+            "  ╚═══╝  ╚══════╝╚══════╝╚═╝    ╚═════╝ \n",
+            style="bold #29DBB3",
         )
 
         title = Text(message, style="bold white")

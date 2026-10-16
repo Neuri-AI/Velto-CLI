@@ -22,8 +22,6 @@ def to_camel_case(name: str) -> str:
 
 
 class AddonModule(str, Enum):
-    HOTRL = "hotrl"
-    PYDUX = "pydux"
     SENTRY = "sentry-sdk"
     REQUESTS = "requests"
 
@@ -177,7 +175,7 @@ class ProjectConfig:
             "app_name": self.app_name,
             "author": self.author,
             "version": str(self.version),
-            "binding": self.binding.value,
+            "framework": self.binding.value,
             "hidden_imports": list(self.DEFAULT_HIDDEN_IMPORTS),
             "optimization": {
                 "exclude_modules": list(self.binding.default_exclude_modules),
