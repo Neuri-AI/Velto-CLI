@@ -155,6 +155,10 @@ class ProjectConfig:
             "class_name": self.to_pascal_case,
             "author": self.author,
             "mac_bundle_identifier": self.mac_bundle_identifier,
+            # Compatibility for v1.0 boilerplates. New templates use
+            # ``framework``, but cached Windows settings still reference
+            # ``${binding}`` for the Qt binary exclusion.
+            "binding": self.binding.value,
             "python_bindings": self.binding.value,
             "framework": self.binding.dependency_spec,
             # for qyro_runtime info

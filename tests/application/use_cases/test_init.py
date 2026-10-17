@@ -362,3 +362,61 @@ class TestInitProjectUseCase:
         persisted = json.loads(fs.write_text.call_args.args[1])
         assert persisted["framework"] == "PySide6"
         assert persisted["framework"] == "PySide6"
+
+
+    @pytest.mark.parametrize("binding", ["PySide6", "Tkinter", "Kivy"])
+    def test_execute_renders_boilerplate_with_real_files(self, tmp_path, binding):
+        from velto_cli.adapters.persistence.storage import OsFileSystem
+
+        use_case, _ui, _fs, dependencies, templates, _settings = make_use_case()
+        use_case.fs = OsFileSystem()
+        template = tmp_path / "template"
+        (template / "settings").mkdir(parents=True)
+        (template / "settings" / "base.json").write_text(
+            '{"app_name": "${app_name}", "author": "${author}", '
+            '"entry_point": "main.py", "addons": ${addons}, '
+            '"version": "${version}", "framework": "${framework}", '
+            '"hidden_imports": ["__future__"], '
+            '"window": {"width": 800, "height": 600}}',
+            encoding="utf-8",
+        )
+        (template / "main.py").write_text(
+            'APP_NAME = "${app_name}"\nFRAMEWORK = "${framework}"\n',
+            encoding="utf-8",
+        )
+        (template / "settings" / "windows.json").write_text(
+            '{"excluded_binary": "${binding}.QtCore.pyd"}',
+            encoding="utf-8",
+        )
+        templates.resolve_template.return_value = template
+        destination = tmp_path / "generated"
+
+        use_case.execute(
+            target_dir=str(destination),
+            default_binding=binding,
+            target_platform="desktop",
+            app_name="My App",
+            app_version="1.2.3",
+            author="Jane",
+            addons=["requests"],
+            confirm=True,
+        )
+
+        content = (destination / "settings" / "base.json").read_text()
+        settings = json.loads(content)
+        assert "${" not in content
+        assert settings["app_name"] == "My App"
+        assert settings["author"] == "Jane"
+        assert settings["version"] == "1.2.3"
+        assert settings["framework"] == binding
+        assert settings["addons"] == ["requests"]
+        assert settings["entry_point"] == "main.py"
+        assert settings["window"] == {"width": 800, "height": 600}
+        assert settings["hidden_imports"] == ["__future__"]
+        assert (destination / "main.py").read_text() == (
+            f'APP_NAME = "My App"\nFRAMEWORK = "{binding}"\n'
+        )
+        assert json.loads(
+            (destination / "settings" / "windows.json").read_text()
+        ) == {"excluded_binary": f"{binding}.QtCore.pyd"}
+        dependencies.install.assert_called_once_with(str(destination))
