@@ -53,6 +53,7 @@ class DevelopmentCoordinator:
                 try:
                     self._connection.sendall((json.dumps(envelope) + "\n").encode())
                 except OSError:
+                    self._connection.close()
                     self._connection = None
 
     def _watch(self):
