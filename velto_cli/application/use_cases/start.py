@@ -34,7 +34,7 @@ class RunApplicationUseCase:
         self.modules = modules
         self.guards = guards
 
-    def execute(self) -> None:
+    def execute(self, *, disable_hot_reload: bool = False) -> None:
         self.guards.require_existing_project()
 
         raw_binding = self.settings.get_optional("framework")
@@ -57,6 +57,7 @@ class RunApplicationUseCase:
         exit_code = self.app_runner.run_from_source(
             main_module_path=str(entry_point_path),
             source_root=current_dir,
+            disable_hot_reload=disable_hot_reload,
         )
 
         if exit_code != 0:
