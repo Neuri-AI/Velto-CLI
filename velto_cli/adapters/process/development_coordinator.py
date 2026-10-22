@@ -103,7 +103,7 @@ class DevelopmentCoordinator:
         pending = set()
         last = None
         while not self._stop.wait(0.1):
-            current = snapshot(self.root)
+            current = snapshot(self.root, watch=self.watch, ignore=self.ignore)
             changed = set(previous) ^ set(current)
             changed.update(p for p in current.keys() & previous.keys()
                            if current[p] != previous[p])
