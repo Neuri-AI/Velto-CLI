@@ -226,7 +226,7 @@ class DevelopmentCoordinator:
                                     child.wait()
                             continue
                         return child.wait()
-                except KeyboardInterrupt:
+            except KeyboardInterrupt:
                 if child is not None and child.poll() is None:
                     child.terminate()
                     child.wait()
