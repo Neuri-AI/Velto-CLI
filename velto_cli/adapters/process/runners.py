@@ -44,8 +44,12 @@ class SubprocessAppRunner:
         self,
         main_module_path: str,
         source_root: str,
+        disable_hot_reload: bool = False,
     ) -> int:
         env = dict(os.environ)
+        env['VELTO_DEVELOPMENT'] = '1'
+        if disable_hot_reload:
+            env['PSX_HOT_RELOAD'] = '0'
         existing = env.get("PYTHONPATH", "")
 
         env["PYTHONPATH"] = (
