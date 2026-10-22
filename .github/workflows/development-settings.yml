@@ -19,4 +19,4 @@ jobs:
           ref: 5ab40d47a318edf33570fbecd9cf21e7317c6e5b
           path: partner-qyro
       - run: python -m pip install -e partner-qyro --no-deps
-      - run: python -m pytest -q tests/cmdline/commands/test_start.py tests/application/use_cases/test_start.py tests/adapters/persistence/test_settings_repository_paths.py tests/adapters/persistence/test_development_settings.py tests/adapters/process/test_development_runner.py tests/adapters/process/test_development_coordinator.py
+      - run: python -m pytest -q tests/cmdline/commands/test_start.py tests/application/use_cases/test_start.py tests/adapters/persistence/test_settings_repository_paths.py tests/adapters/persistence/test_development_settings.py tests/adapters/process/test_development_runner.py tests/adapters/process/test_development_coordinator.py tests/integration/test_development_coordination.py
