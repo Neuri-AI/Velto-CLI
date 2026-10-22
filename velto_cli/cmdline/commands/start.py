@@ -29,6 +29,6 @@ class StartCommand:
         the corresponding use case is available.
         """
 
-        get_container().run_application_use_case.execute()
+        get_container().run_application_use_case.execute(disable_hot_reload=getattr(args, 'no_hot_reload', False))
 
         return 0
