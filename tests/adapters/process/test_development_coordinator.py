@@ -102,15 +102,15 @@ def test_restart_replaces_child_and_retains_single_watcher(tmp_path):
     base.write_text('{"framework": "pyside6"}', encoding="utf-8")
     program = tmp_path / "child.py"
     program.write_text(
-        "from pathlib import Path\\n"
-        "import os, time\\n"
-        "p = Path('launches')\\n"
-        "n = int(p.read_text()) if p.exists() else 0\\n"
-        "p.write_text(str(n + 1))\\n"
-        "if n == 0:\\n"
-        "    while True: time.sleep(.05)\\n"
-        "else:\\n"
-        "    Path('replacement_ready').write_text('yes')\\n",
+        "from pathlib import Path\n"
+        "import os, time\n"
+        "p = Path('launches')\n"
+        "n = int(p.read_text()) if p.exists() else 0\n"
+        "p.write_text(str(n + 1))\n"
+        "if n == 0:\n"
+        "    while True: time.sleep(.05)\n"
+        "else:\n"
+        "    Path('replacement_ready').write_text('yes')\n",
         encoding="utf-8",
     )
     supervisor = DevelopmentCoordinator(tmp_path, debounce=0.05)
