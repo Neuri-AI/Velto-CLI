@@ -150,12 +150,12 @@ class DevelopmentCoordinator:
                         conn.settimeout(2)
                         try:
                             greeting = bytearray()
-                            while b"\\n" not in greeting and len(greeting) < 128:
+                            while b"\n" not in greeting and len(greeting) < 128:
                                 part = conn.recv(128 - len(greeting))
                                 if not part:
                                     break
                                 greeting.extend(part)
-                            if greeting.partition(b"\\n")[0].decode() != token:
+                            if greeting.partition(b"\n")[0].decode() != token:
                                 conn.close()
                                 continue
                             conn.settimeout(None)
