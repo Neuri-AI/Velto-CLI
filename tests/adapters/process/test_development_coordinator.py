@@ -76,3 +76,58 @@ with socket.create_connection((host, int(port)), timeout=3) as conn:
     payload = json.loads((tmp_path / "received").read_text(encoding="utf-8"))
     assert payload["kind"] == "change"
     assert "updated.py" in payload["paths"]
+
+
+def test_backend_change_requests_restart_but_ordinary_edit_does_not(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    base = settings / "base.json"
+    base.write_text('{"framework": "pyside6"}', encoding="utf-8")
+    coordinator = DevelopmentCoordinator(tmp_path)
+    assert not coordinator._classify_change({tmp_path / "main.py"})
+    base.write_text('{"framework": "tkinter"}', encoding="utf-8")
+    assert coordinator._classify_change({base})
+    assert not coordinator._classify_change({base})
+    base.write_text('{"framework": ', encoding="utf-8")
+    assert not coordinator._classify_change({base})
+    base.write_text('{"framework": "kivy"}', encoding="utf-8")
+    assert coordinator._classify_change({base})
+
+
+def test_restart_replaces_child_and_retains_single_watcher(tmp_path):
+    import os
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    base = settings / "base.json"
+    base.write_text('{"framework": "pyside6"}', encoding="utf-8")
+    program = tmp_path / "child.py"
+    program.write_text(
+        "from pathlib import Path\\n"
+        "import os, time\\n"
+        "p = Path('launches')\\n"
+        "n = int(p.read_text()) if p.exists() else 0\\n"
+        "p.write_text(str(n + 1))\\n"
+        "if n == 0:\\n"
+        "    while True: time.sleep(.05)\\n"
+        "else:\\n"
+        "    Path('replacement_ready').write_text('yes')\\n",
+        encoding="utf-8",
+    )
+    supervisor = DevelopmentCoordinator(tmp_path, debounce=0.05)
+    result = []
+    thread = threading.Thread(
+        target=lambda: result.append(supervisor.run([sys.executable, str(program)], dict(os.environ))),
+        daemon=True,
+    )
+    thread.start()
+    deadline = time.monotonic() + 8
+    while not (tmp_path / "launches").exists() and time.monotonic() < deadline:
+        time.sleep(.02)
+    assert (tmp_path / "launches").exists()
+    time.sleep(.25)
+    base.write_text('{"framework": "tkinter"}', encoding="utf-8")
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    assert result == [0]
+    assert (tmp_path / "launches").read_text() == "2"
+    assert (tmp_path / "replacement_ready").exists()
