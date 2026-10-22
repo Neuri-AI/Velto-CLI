@@ -10,6 +10,7 @@ import socket
 import subprocess
 import threading
 import time
+import tempfile
 from contextlib import ExitStack
 
 
@@ -156,6 +157,7 @@ class DevelopmentCoordinator:
         self._stop.clear()
         self._restart.clear()
         token = secrets.token_hex(24)
+        restart_state = tempfile.TemporaryDirectory(prefix="velto-state-")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
             server.bind(("127.0.0.1", 0))
             server.listen(1)
@@ -163,6 +165,7 @@ class DevelopmentCoordinator:
             env = dict(environment)
             env["VELTO_RELOAD_ENDPOINT"] = "127.0.0.1:" + str(server.getsockname()[1])
             env["VELTO_RELOAD_TOKEN"] = token
+            env["VELTO_RESTART_STATE_PATH"] = str(Path(restart_state.name) / "snapshot.json")
             watcher = threading.Thread(target=self._watch, daemon=True,
                                        name="velto-source-watcher")
             watcher.start()
@@ -230,6 +233,7 @@ class DevelopmentCoordinator:
                 if child is not None and child.poll() is None:
                     child.terminate()
                     child.wait()
+                restart_state.cleanup()
                 return 130
             finally:
                 self._stop.set()
