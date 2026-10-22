@@ -13,4 +13,4 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install pytest rich semver requests prompt-toolkit questionary cryptography pillow pyinstaller
       - run: python -m pip install -e . --no-deps
-      - run: python -m pytest -q tests/cmdline/commands/test_start.py tests/application/use_cases/test_start.py tests/adapters/persistence/test_settings_repository_paths.py tests/adapters/process/test_development_runner.py tests/adapters/process/test_development_coordinator.py
+      - run: python -m pytest -q tests/cmdline/commands/test_start.py tests/application/use_cases/test_start.py tests/adapters/persistence/test_settings_repository_paths.py tests/adapters/persistence/test_development_settings.py tests/adapters/process/test_development_runner.py tests/adapters/process/test_development_coordinator.py
