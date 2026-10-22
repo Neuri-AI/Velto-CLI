@@ -18,7 +18,7 @@ class StartCommand:
 
     @staticmethod
     def configure(parser: argparse.ArgumentParser) -> None:
-        pass
+        parser.add_argument('--no-hot-reload', action='store_true', help='Disable source development reload.')
 
     @staticmethod
     def execute(args: argparse.Namespace) -> int:
