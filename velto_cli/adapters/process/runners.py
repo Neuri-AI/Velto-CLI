@@ -64,7 +64,8 @@ class SubprocessAppRunner:
             # Let optional PSX development tooling watch the authored file,
             # not the short-lived transformed entry point.
             env["PSX_SOURCE_ENTRY"] = str(Path(main_module_path).resolve())
-            if enable_hot_reload and not disable_hot_reload:
+            if (enable_hot_reload and not disable_hot_reload
+                    and env.get('PSX_HOT_RELOAD') != '0'):
                 from .development_coordinator import DevelopmentCoordinator
                 return DevelopmentCoordinator(Path(source_root), debounce_ms / 1000).run(
                     [sys.executable, prepared_path], env)
