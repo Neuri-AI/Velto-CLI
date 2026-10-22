@@ -54,3 +54,77 @@ class DevelopmentCoordinator:
                     self._connection.sendall((json.dumps(envelope) + "\n").encode())
                 except OSError:
                     self._connection = None
+
+    def _watch(self):
+        previous = snapshot(self.root)
+        pending = set()
+        last = None
+        while not self._stop.wait(0.1):
+            current = snapshot(self.root)
+            changed = set(previous) ^ set(current)
+            changed.update(p for p in current.keys() & previous.keys()
+                           if current[p] != previous[p])
+            previous = current
+            if changed:
+                pending.update(changed)
+                last = time.monotonic()
+            if pending and last is not None and time.monotonic() - last >= self.debounce:
+                self._notify(pending)
+                pending.clear()
+
+    def run(self, command, environment):
+        """Start one child and authenticate its loopback notification channel."""
+        self._stop.clear()
+        token = secrets.token_hex(24)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            server.settimeout(0.15)
+            env = dict(environment)
+            env["VELTO_RELOAD_ENDPOINT"] = "127.0.0.1:" + str(server.getsockname()[1])
+            env["VELTO_RELOAD_TOKEN"] = token
+            child = subprocess.Popen(command, env=env, cwd=str(self.root))
+            watcher = threading.Thread(target=self._watch, daemon=True,
+                                       name="velto-source-watcher")
+            watcher.start()
+            try:
+                while child.poll() is None:
+                    try:
+                        conn, _ = server.accept()
+                    except socket.timeout:
+                        continue
+                    conn.settimeout(2)
+                    try:
+                        greeting = bytearray()
+                        while b"\n" not in greeting and len(greeting) < 128:
+                            part = conn.recv(128 - len(greeting))
+                            if not part:
+                                break
+                            greeting.extend(part)
+                        if greeting.partition(b"\n")[0].decode() != token:
+                            conn.close()
+                            continue
+                        conn.settimeout(None)
+                        with self._lock:
+                            if self._connection is not None:
+                                self._connection.close()
+                            self._connection = conn
+                    except (OSError, UnicodeError):
+                        conn.close()
+                return child.wait()
+            except KeyboardInterrupt:
+                child.terminate()
+                child.wait()
+                return 130
+            finally:
+                self._stop.set()
+                watcher.join(timeout=3)
+                if watcher.is_alive():
+                    raise RuntimeError("Source watcher failed to stop")
+                with self._lock:
+                    if self._connection is not None:
+                        self._connection.close()
+                        self._connection = None
+                if child.poll() is None:
+                    child.terminate()
+                    child.wait()
