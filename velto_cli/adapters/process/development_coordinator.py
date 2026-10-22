@@ -118,6 +118,38 @@ class DevelopmentCoordinator:
                     self._notify(pending)
                 pending.clear()
 
+    def _receive_requests(self, connection, generation_stop):
+        """Accept bounded restart requests from the authenticated child."""
+        data = bytearray()
+        connection.settimeout(0.2)
+        while not generation_stop.is_set() and not self._stop.is_set():
+            try:
+                chunk = connection.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            if not chunk:
+                return
+            data.extend(chunk)
+            if len(data) > 65536:
+                return
+            while b"\n" in data:
+                raw, _, remaining = data.partition(b"\n")
+                data = bytearray(remaining)
+                try:
+                    message = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if (type(message) is dict and message.get("version") == 1
+                        and message.get("kind") == "restart_request"
+                        and message.get("reason") in {
+                            "loaded_native_extension_changed",
+                            "runtime_bootstrap_changed", "backend_changed",
+                        }):
+                    self._restart.set()
+                    return
+
     def run(self, command, environment):
         """Supervise successive process generations with exactly one watcher."""
         self._stop.clear()
@@ -141,6 +173,8 @@ class DevelopmentCoordinator:
                         if self._connection is not None:
                             self._connection.close()
                             self._connection = None
+                    generation_stop = threading.Event()
+                    receiver_thread = None
                     child = subprocess.Popen(command, env=env, cwd=str(self.root))
                     while child.poll() is None and not self._restart.is_set():
                         try:
@@ -163,8 +197,17 @@ class DevelopmentCoordinator:
                                 if self._connection is not None:
                                     self._connection.close()
                                 self._connection = conn
+                            receiver_thread = threading.Thread(
+                                target=self._receive_requests,
+                                args=(conn, generation_stop), daemon=True,
+                                name="velto-restart-requests",
+                            )
+                            receiver_thread.start()
                         except (OSError, UnicodeError):
                             conn.close()
+                    generation_stop.set()
+                    if receiver_thread is not None:
+                        receiver_thread.join(timeout=1)
                     if self._restart.is_set():
                         if child.poll() is None:
                             child.terminate()
