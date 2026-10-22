@@ -45,6 +45,8 @@ class SubprocessAppRunner:
         main_module_path: str,
         source_root: str,
         disable_hot_reload: bool = False,
+        enable_hot_reload: bool = False,
+        debounce_ms: int = 150,
     ) -> int:
         env = dict(os.environ)
         env['VELTO_DEVELOPMENT'] = '1'
@@ -62,6 +64,10 @@ class SubprocessAppRunner:
             # Let optional PSX development tooling watch the authored file,
             # not the short-lived transformed entry point.
             env["PSX_SOURCE_ENTRY"] = str(Path(main_module_path).resolve())
+            if enable_hot_reload and not disable_hot_reload:
+                from .development_coordinator import DevelopmentCoordinator
+                return DevelopmentCoordinator(Path(source_root), debounce_ms / 1000).run(
+                    [sys.executable, prepared_path], env)
             completed = subprocess.run(
                 [sys.executable, prepared_path],
                 env=env,
