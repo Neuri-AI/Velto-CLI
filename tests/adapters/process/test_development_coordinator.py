@@ -131,3 +131,36 @@ def test_restart_replaces_child_and_retains_single_watcher(tmp_path):
     assert result == [0]
     assert (tmp_path / "launches").read_text() == "2"
     assert (tmp_path / "replacement_ready").exists()
+
+
+def test_authenticated_child_can_request_native_restart(tmp_path):
+    import os
+    script = tmp_path / "child.py"
+    script.write_text("""
+import json
+import os
+from pathlib import Path
+import socket
+import time
+
+count = Path("launches")
+generation = int(count.read_text()) if count.exists() else 0
+count.write_text(str(generation + 1))
+if generation == 0:
+    host, port = os.environ["VELTO_RELOAD_ENDPOINT"].split(":")
+    with socket.create_connection((host, int(port)), timeout=3) as connection:
+        connection.sendall((os.environ["VELTO_RELOAD_TOKEN"] + "\\n").encode())
+        time.sleep(.15)
+        connection.sendall((json.dumps({
+            "version": 1, "kind": "restart_request",
+            "reason": "loaded_native_extension_changed"
+        }) + "\\n").encode())
+        while True:
+            time.sleep(.05)
+else:
+    Path("restarted").write_text("yes")
+""", encoding="utf-8")
+    coordinator = DevelopmentCoordinator(tmp_path, debounce=.05)
+    assert coordinator.run([sys.executable, str(script)], dict(os.environ)) == 0
+    assert (tmp_path / "launches").read_text() == "2"
+    assert (tmp_path / "restarted").exists()
