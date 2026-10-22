@@ -21,6 +21,8 @@ def snapshot(root: Path, *, watch=('.',), ignore=()) -> dict[Path, tuple[int, in
     for folder, subdirs, files in os.walk(root):
         subdirs[:] = [name for name in subdirs if name not in IGNORED]
         for name in files:
+            if Path(name).suffix.lower() not in {'.py', '.css', '.psx', '.json'}:
+                continue
             path = Path(folder, name).resolve()
             try:
                 relative = path.relative_to(root).as_posix()
