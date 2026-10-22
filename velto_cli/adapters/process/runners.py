@@ -73,7 +73,7 @@ class SubprocessAppRunner:
                 monitored = (*watch, authored_entry)
                 return DevelopmentCoordinator(Path(source_root), debounce_ms / 1000,
                                               watch=monitored, ignore=ignore).run(
-                    [sys.executable, prepared_path], env)
+                    [sys.executable, prepared_path], env, authored_entry=main_module_path)
             completed = subprocess.run(
                 [sys.executable, prepared_path],
                 env=env,
