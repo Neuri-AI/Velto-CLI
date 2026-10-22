@@ -36,6 +36,7 @@ class RunApplicationUseCase:
 
     def execute(self, *, disable_hot_reload: bool = False) -> None:
         self.guards.require_existing_project()
+        self.settings.activate_profile('development')
 
         raw_binding = self.settings.get_optional("framework")
         try:
