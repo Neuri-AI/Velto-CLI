@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import fnmatch
 import os
 from pathlib import Path
 import secrets
@@ -14,17 +15,21 @@ import time
 IGNORED = frozenset({".git", ".venv", "__pycache__", "build", "dist", "venv"})
 
 
-def snapshot(root: Path) -> dict[Path, tuple[int, int]]:
+def snapshot(root: Path, *, watch=('.',), ignore=()) -> dict[Path, tuple[int, int]]:
     """Return a bounded-to-project snapshot, excluding generated artifacts."""
     found = {}
     for folder, subdirs, files in os.walk(root):
         subdirs[:] = [name for name in subdirs if name not in IGNORED]
         for name in files:
-            if Path(name).suffix not in {".py", ".css", ".psx"}:
-                continue
             path = Path(folder, name).resolve()
             try:
-                path.relative_to(root)
+                relative = path.relative_to(root).as_posix()
+                if any(fnmatch.fnmatch(relative, pattern) or relative.startswith(pattern.rstrip('/') + '/')
+                       for pattern in ignore):
+                    continue
+                if not any(pattern in {'.', './'} or fnmatch.fnmatch(relative, pattern)
+                           or relative.startswith(pattern.rstrip('/') + '/') for pattern in watch):
+                    continue
                 stat = path.stat()
             except (OSError, ValueError):
                 continue
@@ -35,9 +40,11 @@ def snapshot(root: Path) -> dict[Path, tuple[int, int]]:
 class DevelopmentCoordinator:
     """The CLI alone supervises a watcher; the child owns the native event loop."""
 
-    def __init__(self, root: Path, debounce: float = 0.15):
+    def __init__(self, root: Path, debounce: float = 0.15, *, watch=('.',), ignore=()):
         self.root = root.resolve()
         self.debounce = debounce
+        self.watch = tuple(watch)
+        self.ignore = tuple(ignore)
         self._stop = threading.Event()
         self._connection = None
         self._lock = threading.Lock()
@@ -57,7 +64,7 @@ class DevelopmentCoordinator:
                     self._connection = None
 
     def _watch(self):
-        previous = snapshot(self.root)
+        previous = snapshot(self.root, watch=self.watch, ignore=self.ignore)
         pending = set()
         last = None
         while not self._stop.wait(0.1):
