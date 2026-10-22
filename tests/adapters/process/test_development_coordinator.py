@@ -1,6 +1,9 @@
 """Source watcher contracts for the command-line development supervisor."""
 import json
 import socket
+import sys
+import threading
+import time
 
 from velto_cli.adapters.process.development_coordinator import (
     DevelopmentCoordinator, snapshot,
@@ -34,3 +37,42 @@ def test_coordinator_sends_correlated_project_relative_changes(tmp_path):
     finally:
         sending.close()
         receiving.close()
+
+
+def test_authenticated_child_receives_debounced_file_change(tmp_path):
+    child_script = tmp_path / "listener.py"
+    child_script.write_text("""
+import json
+import os
+from pathlib import Path
+import socket
+
+host, port = os.environ["VELTO_RELOAD_ENDPOINT"].split(":")
+with socket.create_connection((host, int(port)), timeout=3) as conn:
+    conn.sendall((os.environ["VELTO_RELOAD_TOKEN"] + "\\n").encode())
+    Path("ready").write_text("yes")
+    conn.settimeout(5)
+    data = b""
+    while b"\\n" not in data:
+        data += conn.recv(4096)
+    Path("received").write_bytes(data)
+""", encoding="utf-8")
+    coordinator = DevelopmentCoordinator(tmp_path, debounce=0.05)
+    result = []
+    thread = threading.Thread(target=lambda: result.append(
+        coordinator.run([sys.executable, str(child_script)], dict(__import__("os").environ))),
+        daemon=True)
+    thread.start()
+    ready = tmp_path / "ready"
+    deadline = time.monotonic() + 6
+    while not ready.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ready.exists()
+    time.sleep(0.3)
+    (tmp_path / "updated.py").write_text("changed = True", encoding="utf-8")
+    thread.join(timeout=8)
+    assert not thread.is_alive()
+    assert result == [0]
+    payload = json.loads((tmp_path / "received").read_text(encoding="utf-8"))
+    assert payload["kind"] == "change"
+    assert "updated.py" in payload["paths"]
