@@ -10,6 +10,7 @@ import socket
 import subprocess
 import threading
 import time
+from contextlib import ExitStack
 
 
 IGNORED = frozenset({".git", ".venv", "__pycache__", "build", "dist", "venv"})
@@ -150,7 +151,7 @@ class DevelopmentCoordinator:
                     self._restart.set()
                     return
 
-    def run(self, command, environment):
+    def run(self, command, environment, *, authored_entry=None):
         """Supervise successive process generations with exactly one watcher."""
         self._stop.clear()
         self._restart.clear()
@@ -173,52 +174,59 @@ class DevelopmentCoordinator:
                         if self._connection is not None:
                             self._connection.close()
                             self._connection = None
-                    generation_stop = threading.Event()
-                    receiver_thread = None
-                    child = subprocess.Popen(command, env=env, cwd=str(self.root))
-                    while child.poll() is None and not self._restart.is_set():
-                        try:
-                            conn, _ = server.accept()
-                        except socket.timeout:
-                            continue
-                        conn.settimeout(2)
-                        try:
-                            greeting = bytearray()
-                            while b"\n" not in greeting and len(greeting) < 128:
-                                part = conn.recv(128 - len(greeting))
-                                if not part:
-                                    break
-                                greeting.extend(part)
-                            if greeting.partition(b"\n")[0].decode() != token:
-                                conn.close()
-                                continue
-                            conn.settimeout(None)
-                            with self._lock:
-                                if self._connection is not None:
-                                    self._connection.close()
-                                self._connection = conn
-                            receiver_thread = threading.Thread(
-                                target=self._receive_requests,
-                                args=(conn, generation_stop), daemon=True,
-                                name="velto-restart-requests",
-                            )
-                            receiver_thread.start()
-                        except (OSError, UnicodeError):
-                            conn.close()
-                    generation_stop.set()
-                    if receiver_thread is not None:
-                        receiver_thread.join(timeout=1)
-                    if self._restart.is_set():
-                        if child.poll() is None:
-                            child.terminate()
+                    with ExitStack() as generation:
+                        generation_stop = threading.Event()
+                        receiver_thread = None
+                        active_command = command
+                        if authored_entry is not None:
+                            from .runners import _prepared_psx_entry_point
+                            active_command = [*command[:-1], generation.enter_context(
+                                _prepared_psx_entry_point(authored_entry)
+                            )]
+                        child = subprocess.Popen(active_command, env=env, cwd=str(self.root))
+                        while child.poll() is None and not self._restart.is_set():
                             try:
-                                child.wait(timeout=5)
-                            except subprocess.TimeoutExpired:
-                                child.kill()
-                                child.wait()
-                        continue
-                    return child.wait()
-            except KeyboardInterrupt:
+                                conn, _ = server.accept()
+                            except socket.timeout:
+                                continue
+                            conn.settimeout(2)
+                            try:
+                                greeting = bytearray()
+                                while b"\n" not in greeting and len(greeting) < 128:
+                                    part = conn.recv(128 - len(greeting))
+                                    if not part:
+                                        break
+                                    greeting.extend(part)
+                                if greeting.partition(b"\n")[0].decode() != token:
+                                    conn.close()
+                                    continue
+                                conn.settimeout(None)
+                                with self._lock:
+                                    if self._connection is not None:
+                                        self._connection.close()
+                                    self._connection = conn
+                                receiver_thread = threading.Thread(
+                                    target=self._receive_requests,
+                                    args=(conn, generation_stop), daemon=True,
+                                    name="velto-restart-requests",
+                                )
+                                receiver_thread.start()
+                            except (OSError, UnicodeError):
+                                conn.close()
+                        generation_stop.set()
+                        if receiver_thread is not None:
+                            receiver_thread.join(timeout=1)
+                        if self._restart.is_set():
+                            if child.poll() is None:
+                                child.terminate()
+                                try:
+                                    child.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    child.kill()
+                                    child.wait()
+                            continue
+                        return child.wait()
+                except KeyboardInterrupt:
                 if child is not None and child.poll() is None:
                     child.terminate()
                     child.wait()
