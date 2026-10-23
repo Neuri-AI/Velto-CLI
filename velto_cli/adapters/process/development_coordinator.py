@@ -256,7 +256,16 @@ class DevelopmentCoordinator:
                                     child.kill()
                                     child.wait()
                             continue
-                        return child.wait()
+                        code = child.wait()
+                        if code == 0:
+                            return code
+                        while not self._stop.is_set():
+                            if self._source_changed.wait(0.2):
+                                self._source_changed.clear()
+                                break
+                        else:
+                            return code
+                        continue
             except KeyboardInterrupt:
                 if child is not None and child.poll() is None:
                     child.terminate()
