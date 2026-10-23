@@ -54,6 +54,7 @@ class DevelopmentCoordinator:
         self._lock = threading.Lock()
         self._revision = 0
         self._restart = threading.Event()
+        self._state_ready = threading.Event()
         self._runtime_identity = self._read_runtime_identity()
 
     def _read_runtime_identity(self):
@@ -144,6 +145,10 @@ class DevelopmentCoordinator:
                 except (TypeError, ValueError):
                     continue
                 if (type(message) is dict and message.get("version") == 1
+                        and message.get("kind") == "restart_ready"):
+                    self._state_ready.set()
+                    continue
+                if (type(message) is dict and message.get("version") == 1
                         and message.get("kind") == "restart_request"
                         and message.get("reason") in {
                             "loaded_native_extension_changed",
@@ -173,6 +178,7 @@ class DevelopmentCoordinator:
             try:
                 while True:
                     self._restart.clear()
+                    self._state_ready.clear()
                     with self._lock:
                         if self._connection is not None:
                             self._connection.close()
@@ -216,6 +222,18 @@ class DevelopmentCoordinator:
                                 receiver_thread.start()
                             except (OSError, UnicodeError):
                                 conn.close()
+                        if self._restart.is_set() and child.poll() is None:
+                            with self._lock:
+                                connection = self._connection
+                                if connection is not None:
+                                    try:
+                                        connection.sendall(
+                                            b'{"version":1,"kind":"prepare_restart"}\n'
+                                        )
+                                    except OSError:
+                                        connection = None
+                            if connection is not None:
+                                self._state_ready.wait(timeout=1.5)
                         generation_stop.set()
                         if receiver_thread is not None:
                             receiver_thread.join(timeout=1)
