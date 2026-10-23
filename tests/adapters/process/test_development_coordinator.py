@@ -287,3 +287,52 @@ def test_restart_kills_child_process_group_descendants(tmp_path):
         if process.poll() is None:
             process.kill()
             process.wait()
+
+
+def test_failed_backend_switch_restores_last_connected_backend(tmp_path):
+    import os
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    config = settings / "base.json"
+    config.write_text('{"framework":"pyside6"}', encoding="utf-8")
+    child = tmp_path / "child.py"
+    child.write_text("""
+import os
+import socket
+from pathlib import Path
+
+backend = os.environ.get("VELTO_RECOVERY_FRAMEWORK") or "configured"
+path = Path("launch_trace")
+with path.open("a", encoding="utf-8") as record:
+    record.write(backend + "\\n")
+if backend == "configured" and path.read_text().count("configured") > 1:
+    raise SystemExit(7)
+host, port = os.environ["VELTO_RELOAD_ENDPOINT"].split(":")
+with socket.create_connection((host, int(port)), timeout=3) as connection:
+    connection.sendall((os.environ["VELTO_RELOAD_TOKEN"] + "\\n").encode())
+    if backend == "configured":
+        while connection.recv(4096):
+            pass
+""", encoding="utf-8")
+    coordinator = DevelopmentCoordinator(tmp_path, debounce=.05)
+    results = []
+    supervisor = threading.Thread(
+        target=lambda: results.append(
+            coordinator.run([sys.executable, str(child)], dict(os.environ))
+        ), daemon=True,
+    )
+    supervisor.start()
+    trace = tmp_path / "launch_trace"
+    deadline = time.monotonic() + 8
+    while (not trace.exists() or not trace.read_text().strip()) and time.monotonic() < deadline:
+        time.sleep(.02)
+    assert trace.exists()
+    time.sleep(.3)
+    config.write_text('{"framework":"kivy"}', encoding="utf-8")
+    deadline = time.monotonic() + 10
+    while (not trace.exists() or len(trace.read_text().splitlines()) < 3) and time.monotonic() < deadline:
+        time.sleep(.02)
+    assert trace.read_text().splitlines() == ["configured", "configured", "pyside6"]
+    supervisor.join(timeout=10)
+    assert not supervisor.is_alive()
+    assert results == [0]
