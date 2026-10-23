@@ -57,6 +57,7 @@ class DevelopmentCoordinator:
         self._restart = threading.Event()
         self._state_ready = threading.Event()
         self._runtime_identity = self._read_runtime_identity()
+        self._source_changed = threading.Event()
 
     def _read_runtime_identity(self):
         """Resolve the effective backend from the active development profiles."""
