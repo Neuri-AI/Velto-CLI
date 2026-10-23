@@ -59,6 +59,7 @@ class DevelopmentCoordinator:
         self._state_ready = threading.Event()
         self._runtime_identity = self._read_runtime_identity()
         self._source_changed = threading.Event()
+        self._recovery_active = False
 
     def _read_runtime_identity(self):
         """Resolve the effective backend from the active development profiles."""
@@ -123,7 +124,7 @@ class DevelopmentCoordinator:
                 pending.update(changed)
                 last = time.monotonic()
             if pending and last is not None and time.monotonic() - last >= self.debounce:
-                if self._classify_change(pending):
+                if self._classify_change(pending) or self._recovery_active:
                     self._restart.set()
                 else:
                     self._notify(pending)
@@ -218,6 +219,9 @@ class DevelopmentCoordinator:
                                        name="velto-source-watcher")
             watcher.start()
             child = None
+            last_healthy_backend = None
+            restart_pending = False
+            recovery_pending = False
             try:
                 while True:
                     self._restart.clear()
@@ -225,6 +229,11 @@ class DevelopmentCoordinator:
                     self._source_changed.clear()
                     token = secrets.token_hex(24)
                     env["VELTO_RELOAD_TOKEN"] = token
+                    if recovery_pending:
+                        env["VELTO_RECOVERY_FRAMEWORK"] = last_healthy_backend
+                    else:
+                        env.pop("VELTO_RECOVERY_FRAMEWORK", None)
+                    connected_this_generation = False
                     with self._lock:
                         if self._connection is not None:
                             self._connection.close()
@@ -266,6 +275,10 @@ class DevelopmentCoordinator:
                                     name="velto-restart-requests",
                                 )
                                 receiver_thread.start()
+                                connected_this_generation = True
+                                if not recovery_pending:
+                                    last_healthy_backend = self._runtime_identity
+                                    restart_pending = False
                             except (OSError, UnicodeError):
                                 conn.close()
                         if self._restart.is_set() and child.poll() is None:
@@ -284,9 +297,17 @@ class DevelopmentCoordinator:
                         if receiver_thread is not None:
                             receiver_thread.join(timeout=1)
                         if self._restart.is_set():
+                            restart_pending = True
+                            recovery_pending = False
+                            self._recovery_active = False
                             self._stop_process_tree(child)
                             continue
                         code = child.wait()
+                        if (code != 0 and restart_pending and not connected_this_generation
+                                and not recovery_pending and last_healthy_backend):
+                            recovery_pending = True
+                            self._recovery_active = True
+                            continue
                         if code == 0:
                             return code
                         while not self._stop.is_set():
