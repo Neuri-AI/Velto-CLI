@@ -269,7 +269,11 @@ class DevelopmentCoordinator:
             except KeyboardInterrupt:
                 if child is not None and child.poll() is None:
                     child.terminate()
-                    child.wait()
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child.wait()
                 return 130
             finally:
                 self._stop.set()
@@ -280,7 +284,11 @@ class DevelopmentCoordinator:
                         self._connection = None
                 if child is not None and child.poll() is None:
                     child.terminate()
-                    child.wait()
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child.wait()
                 restart_state.cleanup()
                 if watcher.is_alive():
                     raise RuntimeError("Source watcher failed to stop")
