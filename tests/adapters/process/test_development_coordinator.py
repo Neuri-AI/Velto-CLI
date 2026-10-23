@@ -359,3 +359,17 @@ def test_entry_bootstrap_signature_changes_without_restart_for_render_edit(tmp_p
     assert coordinator._bootstrap_changed({entry})
     entry.write_text("if __name__ =\n", encoding="utf-8")
     assert not coordinator._bootstrap_changed({entry})
+
+
+def test_interpreter_replacement_classified_without_unrelated_source_restart(tmp_path):
+    binary = tmp_path / "python"
+    binary.write_bytes(b"old executable")
+    coordinator = DevelopmentCoordinator(tmp_path)
+    coordinator._interpreter_path = binary
+    assert not coordinator._interpreter_changed()
+    assert not coordinator._interpreter_changed()
+    binary.write_bytes(b"new executable with different bytes")
+    assert coordinator._interpreter_changed()
+    assert not coordinator._interpreter_changed()
+    binary.unlink()
+    assert not coordinator._interpreter_changed()
