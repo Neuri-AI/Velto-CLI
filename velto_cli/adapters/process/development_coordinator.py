@@ -160,6 +160,8 @@ class DevelopmentCoordinator:
                         and message.get("reason") in {
                             "loaded_native_extension_changed",
                             "runtime_bootstrap_changed", "backend_changed",
+                            "interpreter_changed", "unsafe_global_initialization",
+                            "external_resource_incompatible",
                         }):
                     self._restart.set()
                     return
