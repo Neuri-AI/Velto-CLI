@@ -251,13 +251,10 @@ class DevelopmentCoordinator:
                 if child is not None and child.poll() is None:
                     child.terminate()
                     child.wait()
-                restart_state.cleanup()
                 return 130
             finally:
                 self._stop.set()
                 watcher.join(timeout=3)
-                if watcher.is_alive():
-                    raise RuntimeError("Source watcher failed to stop")
                 with self._lock:
                     if self._connection is not None:
                         self._connection.close()
@@ -265,3 +262,6 @@ class DevelopmentCoordinator:
                 if child is not None and child.poll() is None:
                     child.terminate()
                     child.wait()
+                restart_state.cleanup()
+                if watcher.is_alive():
+                    raise RuntimeError("Source watcher failed to stop")
