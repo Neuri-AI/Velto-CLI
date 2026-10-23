@@ -196,8 +196,7 @@ else:
             message += conn.recv(4096)
         assert json.loads(message.split(b"\\n")[0])["kind"] == "prepare_restart"
         state_path.write_text('{"version":1,"store":{"version":1,"state":{"count":42}}}')
-        conn.sendall(b'{"version":1,"kind":"restart_ready}\\n'.replace(
-            b'restart_ready}', b'restart_ready"}'))
+        conn.sendall((json.dumps({"version": 1, "kind": "restart_ready"}) + "\\n").encode())
         while True:
             time.sleep(.05)
 """, encoding="utf-8")
