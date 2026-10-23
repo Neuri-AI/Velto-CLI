@@ -184,6 +184,8 @@ class DevelopmentCoordinator:
                 while True:
                     self._restart.clear()
                     self._state_ready.clear()
+                    token = secrets.token_hex(24)
+                    env["VELTO_RELOAD_TOKEN"] = token
                     with self._lock:
                         if self._connection is not None:
                             self._connection.close()
