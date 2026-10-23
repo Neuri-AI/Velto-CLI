@@ -63,6 +63,8 @@ class DevelopmentCoordinator:
         self._recovery_active = False
         self._bootstrap_source = None
         self._bootstrap_signature = None
+        self._interpreter_path = None
+        self._interpreter_identity = None
 
     def _read_runtime_identity(self):
         """Resolve the effective backend from the active development profiles."""
@@ -125,6 +127,23 @@ class DevelopmentCoordinator:
         self._bootstrap_signature = current
         return previous is not None and current != previous
 
+    def _interpreter_changed(self):
+        """Detect replacement of the executable backing the child interpreter."""
+        if self._interpreter_path is None:
+            return False
+        try:
+            executable = self._interpreter_path.resolve(strict=True)
+            stat = executable.stat()
+        except OSError:
+            return False
+        current = (str(executable), stat.st_dev, stat.st_ino,
+                   stat.st_mtime_ns, stat.st_size)
+        previous = self._interpreter_identity
+        if previous == current:
+            return False
+        self._interpreter_identity = current
+        return previous is not None
+
     def _notify(self, paths):
         self._revision += 1
         envelope = {"version": 1, "kind": "change",
@@ -152,6 +171,8 @@ class DevelopmentCoordinator:
                 self._source_changed.set()
                 pending.update(changed)
                 last = time.monotonic()
+            if self._interpreter_changed():
+                self._restart.set()
             if pending and last is not None and time.monotonic() - last >= self.debounce:
                 if (self._classify_change(pending)
                         or self._bootstrap_changed(pending) or self._recovery_active):
@@ -235,6 +256,9 @@ class DevelopmentCoordinator:
         """Supervise successive process generations with exactly one watcher."""
         self._stop.clear()
         self._restart.clear()
+        if command:
+            self._interpreter_path = Path(command[0])
+            self._interpreter_changed()
         if authored_entry is not None:
             self._bootstrap_source = Path(authored_entry).resolve()
             self._bootstrap_signature = self._main_bootstrap_signature(self._bootstrap_source)
