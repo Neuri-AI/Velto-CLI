@@ -215,6 +215,7 @@ class DevelopmentCoordinator:
                             "runtime_bootstrap_changed", "backend_changed",
                             "interpreter_changed", "unsafe_global_initialization",
                             "external_resource_incompatible",
+                            "root_host_changed",
                         }):
                     self._restart.set()
                     return
