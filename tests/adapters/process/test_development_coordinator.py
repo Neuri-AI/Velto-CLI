@@ -373,3 +373,44 @@ def test_interpreter_replacement_classified_without_unrelated_source_restart(tmp
     assert not coordinator._interpreter_changed()
     binary.unlink()
     assert not coordinator._interpreter_changed()
+
+
+def test_repeated_authenticated_restarts_release_watcher_and_child_generations(tmp_path):
+    import os
+    from pathlib import Path
+    script = tmp_path / "child.py"
+    script.write_text("""
+import json
+import os
+from pathlib import Path
+import socket
+import time
+
+trace = Path("generation_trace")
+generation = len(trace.read_text().splitlines()) if trace.exists() else 0
+with trace.open("a", encoding="utf-8") as stream:
+    stream.write(str(generation) + "\\n")
+if generation >= 8:
+    raise SystemExit(0)
+host, port = os.environ["VELTO_RELOAD_ENDPOINT"].split(":")
+with socket.create_connection((host, int(port)), timeout=3) as connection:
+    connection.sendall((os.environ["VELTO_RELOAD_TOKEN"] + "\\n").encode())
+    time.sleep(.1)
+    connection.sendall((json.dumps({
+        "version": 1, "kind": "restart_request",
+        "reason": "runtime_bootstrap_changed",
+    }) + "\\n").encode())
+    while True:
+        time.sleep(.05)
+""", encoding="utf-8")
+    before = {thread.ident for thread in threading.enumerate()
+              if thread.name == "velto-source-watcher"}
+    coordinator = DevelopmentCoordinator(tmp_path, debounce=.05)
+    result = coordinator.run([sys.executable, str(script)], dict(os.environ))
+    assert result == 0
+    assert (tmp_path / "generation_trace").read_text().splitlines() == [
+        str(i) for i in range(9)
+    ]
+    remaining = {thread.ident for thread in threading.enumerate()
+                 if thread.name == "velto-source-watcher"}
+    assert remaining == before
