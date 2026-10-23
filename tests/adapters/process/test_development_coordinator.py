@@ -212,3 +212,22 @@ else:
     assert coordinator.run([sys.executable, str(child)], dict(os.environ)) == 0
     assert (tmp_path / "generations").read_text() == "2"
     assert json.loads((tmp_path / "restored").read_text())["store"]["state"]["count"] == 42
+
+
+def test_only_effective_development_backend_triggers_restart(tmp_path):
+    import sys
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    base = settings / "base.json"
+    base.write_text('{"framework":"pyside6"}', encoding="utf-8")
+    development = settings / "development.json"
+    development.write_text('{"hot_reload":{"enabled":true}}', encoding="utf-8")
+    coordinator = DevelopmentCoordinator(tmp_path)
+    development.write_text('{"hot_reload":{"enabled":false}}', encoding="utf-8")
+    assert not coordinator._classify_change({development})
+    unused = settings / ("windows.json" if sys.platform != "win32" else "linux.json")
+    unused.write_text('{"framework":"kivy"}', encoding="utf-8")
+    assert not coordinator._classify_change({unused})
+    development.write_text('{"framework":"tkinter"}', encoding="utf-8")
+    assert coordinator._classify_change({development})
+    assert not coordinator._classify_change({development})
