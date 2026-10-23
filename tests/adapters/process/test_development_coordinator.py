@@ -254,3 +254,36 @@ def test_failed_boot_recovers_on_subsequent_source_save(tmp_path):
     assert not worker.is_alive()
     assert observed == [0]
     assert (tmp_path / "boot_count").read_text() == "2"
+
+
+def test_restart_kills_child_process_group_descendants(tmp_path):
+    import os
+    import subprocess
+    import pytest
+    if os.name == "nt":
+        pytest.skip("POSIX process-group regression")
+    script = tmp_path / "parent.py"
+    script.write_text(
+        "import subprocess,sys,time\n"
+        "from pathlib import Path\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "Path('worker_pid').write_text(str(child.pid))\n"
+        "time.sleep(60)\n", encoding="utf-8",
+    )
+    process = subprocess.Popen(
+        [sys.executable, str(script)], cwd=str(tmp_path), start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not (tmp_path / "worker_pid").exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        assert (tmp_path / "worker_pid").exists()
+        pid = int((tmp_path / "worker_pid").read_text())
+        DevelopmentCoordinator._stop_process_tree(process)
+        import signal
+        with pytest.raises(ProcessLookupError):
+            os.killpg(process.pid, 0)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
