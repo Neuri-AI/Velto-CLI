@@ -1,5 +1,6 @@
 """Source watcher contracts for the command-line development supervisor."""
 import json
+import pytest
 import socket
 import sys
 import threading
@@ -133,7 +134,8 @@ def test_restart_replaces_child_and_retains_single_watcher(tmp_path):
     assert (tmp_path / "replacement_ready").exists()
 
 
-def test_authenticated_child_can_request_native_restart(tmp_path, monkeypatch):
+@pytest.mark.parametrize("reason", ["loaded_native_extension_changed", "root_host_changed"])
+def test_authenticated_child_can_request_native_restart(tmp_path, monkeypatch, reason):
     from velto_cli.adapters.process import runners
     prepare = runners._prepared_psx_entry_point
     preparations = []
@@ -166,7 +168,7 @@ if generation == 0:
             time.sleep(.05)
 else:
     Path("restarted").write_text("yes")
-""", encoding="utf-8")
+""".replace('"reason": "loaded_native_extension_changed"', f'"reason": "{reason}"'), encoding="utf-8")
     coordinator = DevelopmentCoordinator(tmp_path, debounce=.05)
     assert coordinator.run([sys.executable, str(script)], dict(os.environ), authored_entry=str(script)) == 0
     assert (tmp_path / "launches").read_text() == "2"
