@@ -133,7 +133,14 @@ def test_restart_replaces_child_and_retains_single_watcher(tmp_path):
     assert (tmp_path / "replacement_ready").exists()
 
 
-def test_authenticated_child_can_request_native_restart(tmp_path):
+def test_authenticated_child_can_request_native_restart(tmp_path, monkeypatch):
+    from velto_cli.adapters.process import runners
+    prepare = runners._prepared_psx_entry_point
+    preparations = []
+    def tracked(source):
+        preparations.append(source)
+        return prepare(source)
+    monkeypatch.setattr(runners, "_prepared_psx_entry_point", tracked)
     import os
     script = tmp_path / "child.py"
     script.write_text("""
@@ -161,9 +168,10 @@ else:
     Path("restarted").write_text("yes")
 """, encoding="utf-8")
     coordinator = DevelopmentCoordinator(tmp_path, debounce=.05)
-    assert coordinator.run([sys.executable, str(script)], dict(os.environ)) == 0
+    assert coordinator.run([sys.executable, str(script)], dict(os.environ), authored_entry=str(script)) == 0
     assert (tmp_path / "launches").read_text() == "2"
     assert (tmp_path / "restarted").exists()
+    assert preparations == [str(script), str(script)]
 
 
 def test_restart_prepares_snapshot_before_replacement_child(tmp_path):
