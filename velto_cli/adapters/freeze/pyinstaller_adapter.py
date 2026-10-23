@@ -30,7 +30,6 @@ from velto_cli.domain.build import (
     BundleMode,
     FreezeManifest
 )
-from PIL import Image
 from velto_cli.adapters.freeze.secrets_crypto import encrypt_secrets_payload
 from velto_cli.adapters.persistence.storage import SIGNING_SETTING_KEYS
 from velto_cli.adapters.process.runners import _prepared_psx_entry_point
@@ -716,6 +715,8 @@ class PyInstallerFreezer(FreezerPort):
 
         try:
 
+            from PIL import Image
+
             img = Image.open(source_icon)
             for size, scale in sizes:
                 px = size * scale
@@ -804,6 +805,8 @@ class PyInstallerFreezer(FreezerPort):
                 try:
                     ico_target = build_dir / "Icon.ico"
                     build_dir.mkdir(parents=True, exist_ok=True)
+                    from PIL import Image
+
                     img = Image.open(png_source)
                     img.save(
                         ico_target,
