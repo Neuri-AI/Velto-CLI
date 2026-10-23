@@ -282,9 +282,25 @@ def test_restart_kills_child_process_group_descendants(tmp_path):
         assert (tmp_path / "worker_pid").exists()
         pid = int((tmp_path / "worker_pid").read_text())
         DevelopmentCoordinator._stop_process_tree(process)
-        import signal
-        with pytest.raises(ProcessLookupError):
-            os.killpg(process.pid, 0)
+        # On Linux, an orphaned child may remain as a zombie until PID 1
+        # reaps it. killpg(pid, 0) still succeeds for a zombie-only group,
+        # even though there are no running descendants to clean up.
+        assert process.poll() is not None
+        if sys.platform == "linux":
+            status_path = __import__("pathlib").Path(f"/proc/{pid}/stat")
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if not status_path.exists():
+                    break
+                if status_path.read_text().split(") ", 1)[1].split()[0] == "Z":
+                    break
+                time.sleep(.02)
+            else:
+                pytest.fail("Restart left a running descendant alive.")
+        else:
+            import signal
+            with pytest.raises(ProcessLookupError):
+                os.killpg(process.pid, 0)
     finally:
         if process.poll() is None:
             process.kill()
