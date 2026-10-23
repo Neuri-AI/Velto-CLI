@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import fnmatch
 import os
 from pathlib import Path
@@ -60,6 +61,8 @@ class DevelopmentCoordinator:
         self._runtime_identity = self._read_runtime_identity()
         self._source_changed = threading.Event()
         self._recovery_active = False
+        self._bootstrap_source = None
+        self._bootstrap_signature = None
 
     def _read_runtime_identity(self):
         """Resolve the effective backend from the active development profiles."""
@@ -96,6 +99,32 @@ class DevelopmentCoordinator:
         self._runtime_identity = current
         return previous is not None and current != previous
 
+    @staticmethod
+    def _main_bootstrap_signature(source):
+        """Fingerprint explicit Python process entry logic, not render bodies."""
+        try:
+            tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        except (OSError, SyntaxError, UnicodeError):
+            return None
+        bootstrap = []
+        for statement in tree.body:
+            if isinstance(statement, ast.If):
+                text = ast.unparse(statement.test)
+                if "__name__" in text and "__main__" in text:
+                    bootstrap.append(ast.dump(statement, include_attributes=False))
+        return tuple(bootstrap)
+
+    def _bootstrap_changed(self, paths):
+        if self._bootstrap_source is None or self._bootstrap_source not in paths:
+            return False
+        current = self._main_bootstrap_signature(self._bootstrap_source)
+        if current is None:
+            # Invalid saves cannot invalidate the last functional process.
+            return False
+        previous = self._bootstrap_signature
+        self._bootstrap_signature = current
+        return previous is not None and current != previous
+
     def _notify(self, paths):
         self._revision += 1
         envelope = {"version": 1, "kind": "change",
@@ -124,7 +153,8 @@ class DevelopmentCoordinator:
                 pending.update(changed)
                 last = time.monotonic()
             if pending and last is not None and time.monotonic() - last >= self.debounce:
-                if self._classify_change(pending) or self._recovery_active:
+                if (self._classify_change(pending)
+                        or self._bootstrap_changed(pending) or self._recovery_active):
                     self._restart.set()
                 else:
                     self._notify(pending)
@@ -205,6 +235,9 @@ class DevelopmentCoordinator:
         """Supervise successive process generations with exactly one watcher."""
         self._stop.clear()
         self._restart.clear()
+        if authored_entry is not None:
+            self._bootstrap_source = Path(authored_entry).resolve()
+            self._bootstrap_signature = self._main_bootstrap_signature(self._bootstrap_source)
         token = secrets.token_hex(24)
         restart_state = tempfile.TemporaryDirectory(prefix="velto-state-")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
