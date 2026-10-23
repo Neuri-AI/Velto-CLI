@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import secrets
 import socket
+import sys
 import subprocess
 import threading
 import time
@@ -58,27 +59,31 @@ class DevelopmentCoordinator:
         self._runtime_identity = self._read_runtime_identity()
 
     def _read_runtime_identity(self):
-        """Read only process-defining configuration, never application state."""
-        identity = {}
-        settings = self.root / "settings"
-        for name in ("base.json", "windows.json", "linux.json", "mac.json"):
-            path = settings / name
+        """Resolve the effective backend from the active development profiles."""
+        platform = ("windows.json" if sys.platform == "win32" else
+                    "mac.json" if sys.platform == "darwin" else "linux.json")
+        effective = {}
+        for name in ("base.json", platform, "development.json"):
+            path = self.root / "settings" / name
             if not path.is_file():
                 continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (ValueError, OSError):
-                # Preserve the running process until a valid file is saved.
+                # An invalid save never forces a restart of the working app.
                 return None
             if not isinstance(data, dict):
                 return None
-            identity[name] = (data.get("framework"), data.get("binding"))
-        return identity
+            for key in ("framework", "binding"):
+                if key in data:
+                    effective[key] = data[key]
+        return effective.get("framework") or effective.get("binding")
 
     def _classify_change(self, paths):
-        """Escalate only changes affecting the toolkit bootstrap."""
+        """Restart only when the effective native event-loop backend changes."""
         if not any(path.parent == self.root / "settings" and
-                   path.name in {"base.json", "windows.json", "linux.json", "mac.json"}
+                   path.name in {"base.json", "windows.json", "linux.json",
+                                 "mac.json", "development.json"}
                    for path in paths):
             return False
         current = self._read_runtime_identity()
