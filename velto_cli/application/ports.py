@@ -160,6 +160,8 @@ class SettingsPort(Protocol):
 
     def activate_profile(self, profile: str) -> None: ...
 
+    def activate_development_profile(self) -> None: ...
+
     @property
     def base_settings_path(self) -> str: ...
 
@@ -206,6 +208,11 @@ class AppRunnerPort(Protocol):
         self,
         main_module_path: str,
         source_root: str,
+        disable_hot_reload: bool = False,
+        enable_hot_reload: bool = False,
+        debounce_ms: int = 150,
+        watch: tuple[str, ...] = ('.',),
+        ignore: tuple[str, ...] = (),
     ) -> int: ...
 
 

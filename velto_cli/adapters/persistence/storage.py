@@ -7,6 +7,7 @@ use cases depend on an interface they can fake instead of on module state.
 
 import shutil
 import json
+import sys
 import getpass
 from pathlib import Path
 from string import Template
@@ -240,6 +241,32 @@ class SettingsRepository:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._settings.update(values)
         path.write_text(json.dumps(self._settings, indent=4), encoding="utf-8")
+
+    def activate_development_profile(self) -> None:
+        """Load only source-mode platform and development settings.
+
+        Do not use the generic Windows profile loader here: it also merges
+        release.json, which is not a source-development configuration.
+        """
+        if sys.platform.startswith("win"):
+            aliases = ("windows.json", "win32.json")
+        elif sys.platform == "darwin":
+            aliases = ("mac.json", "darwin.json")
+        else:
+            aliases = ("linux.json",)
+        settings_dir = self._root / "settings"
+        for name in aliases:
+            data = self._load_json_dict(settings_dir / name)
+            if data is not None:
+                self._deep_merge(self._settings, data)
+                break
+        development = settings_dir / "development.json"
+        if development.is_file():
+            data = json.loads(development.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("settings/development.json must contain an object")
+            self._deep_merge(self._settings, data)
+        self._apply_secrets_overrides()
 
     def activate_profile(self, profile: str) -> None:
         """Load platform / profile specific JSON from settings directories."""
