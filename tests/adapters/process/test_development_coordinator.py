@@ -231,3 +231,26 @@ def test_only_effective_development_backend_triggers_restart(tmp_path):
     development.write_text('{"framework":"tkinter"}', encoding="utf-8")
     assert coordinator._classify_change({development})
     assert not coordinator._classify_change({development})
+
+def test_failed_boot_recovers_on_subsequent_source_save(tmp_path):
+    import os
+    from pathlib import Path
+    child = tmp_path / "startup.py"
+    child.write_text("from pathlib import Path\n"                     "count = Path(\'boot_count\')\n"                     "n = int(count.read_text()) if count.exists() else 0\n"                     "count.write_text(str(n + 1))\n"                     "raise SystemExit(5 if n == 0 else 0)\n", encoding="utf-8")
+    coordinator = DevelopmentCoordinator(tmp_path, debounce=0.05)
+    observed = []
+    worker = threading.Thread(
+        target=lambda: observed.append(coordinator.run([sys.executable, str(child)], dict(os.environ))),
+        daemon=True,
+    )
+    worker.start()
+    deadline = time.monotonic() + 8
+    while not (tmp_path / "boot_count").exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert (tmp_path / "boot_count").exists()
+    time.sleep(0.25)
+    (tmp_path / "corrected.py").write_text("updated = True", encoding="utf-8")
+    worker.join(timeout=10)
+    assert not worker.is_alive()
+    assert observed == [0]
+    assert (tmp_path / "boot_count").read_text() == "2"
