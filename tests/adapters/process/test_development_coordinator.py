@@ -164,3 +164,44 @@ else:
     assert coordinator.run([sys.executable, str(script)], dict(os.environ)) == 0
     assert (tmp_path / "launches").read_text() == "2"
     assert (tmp_path / "restarted").exists()
+
+
+def test_restart_prepares_snapshot_before_replacement_child(tmp_path):
+    import os
+    child = tmp_path / "child.py"
+    child.write_text("""
+import json
+import os
+from pathlib import Path
+import socket
+import time
+
+state_path = Path(os.environ["VELTO_RESTART_STATE_PATH"])
+counter = Path("generations")
+n = int(counter.read_text()) if counter.exists() else 0
+counter.write_text(str(n + 1))
+if n:
+    Path("restored").write_text(state_path.read_text())
+else:
+    host, port = os.environ["VELTO_RELOAD_ENDPOINT"].split(":")
+    with socket.create_connection((host, int(port)), timeout=3) as conn:
+        conn.sendall((os.environ["VELTO_RELOAD_TOKEN"] + "\\n").encode())
+        time.sleep(.15)
+        conn.sendall((json.dumps({
+            "version": 1, "kind": "restart_request",
+            "reason": "loaded_native_extension_changed"
+        }) + "\\n").encode())
+        message = b""
+        while b"\\n" not in message:
+            message += conn.recv(4096)
+        assert json.loads(message.split(b"\\n")[0])["kind"] == "prepare_restart"
+        state_path.write_text('{"version":1,"store":{"version":1,"state":{"count":42}}}')
+        conn.sendall(b'{"version":1,"kind":"restart_ready}\\n'.replace(
+            b'restart_ready}', b'restart_ready"}'))
+        while True:
+            time.sleep(.05)
+""", encoding="utf-8")
+    coordinator = DevelopmentCoordinator(tmp_path, debounce=.05)
+    assert coordinator.run([sys.executable, str(child)], dict(os.environ)) == 0
+    assert (tmp_path / "generations").read_text() == "2"
+    assert json.loads((tmp_path / "restored").read_text())["store"]["state"]["count"] == 42
