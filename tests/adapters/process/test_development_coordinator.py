@@ -336,3 +336,26 @@ with socket.create_connection((host, int(port)), timeout=3) as connection:
     supervisor.join(timeout=10)
     assert not supervisor.is_alive()
     assert results == [0]
+
+
+def test_entry_bootstrap_signature_changes_without_restart_for_render_edit(tmp_path):
+    entry = tmp_path / "main.py"
+    entry.write_text(
+        "def render(): return 'first'\n"
+        "if __name__ == '__main__':\n    launch()\n", encoding="utf-8",
+    )
+    coordinator = DevelopmentCoordinator(tmp_path)
+    coordinator._bootstrap_source = entry
+    coordinator._bootstrap_signature = coordinator._main_bootstrap_signature(entry)
+    entry.write_text(
+        "def render(): return 'second'\n"
+        "if __name__ == '__main__':\n    launch()\n", encoding="utf-8",
+    )
+    assert not coordinator._bootstrap_changed({entry})
+    entry.write_text(
+        "def render(): return 'second'\n"
+        "if __name__ == '__main__':\n    launch_new_backend()\n", encoding="utf-8",
+    )
+    assert coordinator._bootstrap_changed({entry})
+    entry.write_text("if __name__ =\n", encoding="utf-8")
+    assert not coordinator._bootstrap_changed({entry})
