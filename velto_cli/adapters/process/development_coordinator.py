@@ -118,6 +118,7 @@ class DevelopmentCoordinator:
                            if current[p] != previous[p])
             previous = current
             if changed:
+                self._source_changed.set()
                 pending.update(changed)
                 last = time.monotonic()
             if pending and last is not None and time.monotonic() - last >= self.debounce:
@@ -185,6 +186,7 @@ class DevelopmentCoordinator:
                 while True:
                     self._restart.clear()
                     self._state_ready.clear()
+                    self._source_changed.clear()
                     token = secrets.token_hex(24)
                     env["VELTO_RELOAD_TOKEN"] = token
                     with self._lock:
