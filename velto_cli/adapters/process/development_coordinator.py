@@ -8,6 +8,7 @@ from pathlib import Path
 import secrets
 import socket
 import sys
+import signal
 import subprocess
 import threading
 import time
@@ -166,6 +167,39 @@ class DevelopmentCoordinator:
                     self._restart.set()
                     return
 
+    @staticmethod
+    def _stop_process_tree(child):
+        """Stop a supervised process group, including its live descendants."""
+        if os.name == "nt":
+            if child.poll() is None:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                        check=False, stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL, timeout=5,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                if child.poll() is None:
+                    child.kill()
+            child.wait()
+            return
+        # The child starts in its own POSIX process group. Group cleanup
+        # remains necessary even if its leader has already exited.
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            child.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait()
+
     def run(self, command, environment, *, authored_entry=None):
         """Supervise successive process generations with exactly one watcher."""
         self._stop.clear()
@@ -204,7 +238,7 @@ class DevelopmentCoordinator:
                             active_command = [*command[:-1], generation.enter_context(
                                 _prepared_psx_entry_point(authored_entry)
                             )]
-                        child = subprocess.Popen(active_command, env=env, cwd=str(self.root))
+                        child = subprocess.Popen(active_command, env=env, cwd=str(self.root), start_new_session=(os.name != 'nt'), creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0))
                         while child.poll() is None and not self._restart.is_set():
                             try:
                                 conn, _ = server.accept()
@@ -250,13 +284,7 @@ class DevelopmentCoordinator:
                         if receiver_thread is not None:
                             receiver_thread.join(timeout=1)
                         if self._restart.is_set():
-                            if child.poll() is None:
-                                child.terminate()
-                                try:
-                                    child.wait(timeout=5)
-                                except subprocess.TimeoutExpired:
-                                    child.kill()
-                                    child.wait()
+                            self._stop_process_tree(child)
                             continue
                         code = child.wait()
                         if code == 0:
@@ -269,13 +297,8 @@ class DevelopmentCoordinator:
                             return code
                         continue
             except KeyboardInterrupt:
-                if child is not None and child.poll() is None:
-                    child.terminate()
-                    try:
-                        child.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        child.kill()
-                        child.wait()
+                if child is not None:
+                    self._stop_process_tree(child)
                 return 130
             finally:
                 self._stop.set()
@@ -284,13 +307,8 @@ class DevelopmentCoordinator:
                     if self._connection is not None:
                         self._connection.close()
                         self._connection = None
-                if child is not None and child.poll() is None:
-                    child.terminate()
-                    try:
-                        child.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        child.kill()
-                        child.wait()
+                if child is not None:
+                    self._stop_process_tree(child)
                 restart_state.cleanup()
                 if watcher.is_alive():
                     raise RuntimeError("Source watcher failed to stop")
