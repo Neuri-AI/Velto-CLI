@@ -26,7 +26,9 @@ jobs:
       - name: Install CLI and its build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e . pytest pyinstaller
-          python -m pip install "git+https://github.com/Neuri-AI/PSX.git@develop"
+          python -m pip install --no-deps -e .
+          python -m pip install pytest pyinstaller cryptography prompt-toolkit questionary rich
+          python -m pip install --no-deps "git+https://github.com/Neuri-AI/PSX.git@develop"
+          python -m pip install --no-deps "git+https://github.com/Neuri-AI/qyro.git@release"
       - name: Run freeze and secret-package contracts
         run: python -m pytest -q tests/adapters/freeze/test_framework_hooks.py tests/adapters/freeze/test_secrets_crypto.py
