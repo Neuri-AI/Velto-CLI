@@ -249,7 +249,7 @@ class PyInstallerFreezer(FreezerPort):
     def _psx_component_source_args(project_root: Path, manifest: FreezeManifest) -> List[str]:
         """Stage minimal, location-preserving sources for frozen @component."""
         separator = ";" if manifest.target_platform == "windows" else ":"
-        staging = project_root / "build" / "temp" / "psx" / "component_sources"
+        staging = project_root / "build" / "psx-component-sources"
         args: List[str] = []
         excluded = {".git", ".velto", ".venv", "venv", "build", "dist",
                     "__pycache__", ".tox", ".pytest_cache", "node_modules"}
