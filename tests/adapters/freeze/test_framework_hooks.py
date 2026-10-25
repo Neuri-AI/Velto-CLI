@@ -324,3 +324,42 @@ def test_freeze_can_ship_multiple_component_definitions_without_exposing_other_c
     content = Path(args[1].split(";")[0]).read_text(encoding="utf-8")
     assert "def Chart" in content and "def Info" in content
     assert "SECRET" not in content and "def helper" not in content
+
+
+def test_staged_source_can_be_read_by_inspect_for_frozen_component(tmp_path):
+    import inspect
+    import importlib.util
+    import sys
+    from types import ModuleType
+    root = tmp_path / "project"
+    path = root / "components"
+    path.mkdir(parents=True)
+    (path / "sidebar.py").write_text(
+        "from psx.core.component import component\n"
+        "from psx import psx\n"
+        "@component\n"
+        "def Sidebar():\n"
+        "    return psx('''<div>Sidebar</div>''')\n",
+        encoding="utf-8",
+    )
+    manifest = FreezeManifest(app_name="MyApp", target_platform="windows")
+    args = PyInstallerFreezer._psx_component_source_args(root, manifest)
+    staged = Path(args[1].split(";")[0])
+    assert staged.exists()
+    # PyInstaller's module.__file__ points to _internal/components/sidebar.pyc;
+    # the staged data supplies the sibling .py used by inspect.getsourcelines.
+    module_path = tmp_path / "frozen" / "components"
+    module_path.mkdir(parents=True)
+    (module_path / "sidebar.py").write_bytes(staged.read_bytes())
+    source = compile(
+        (path / "sidebar.py").read_text(encoding="utf-8"),
+        str(module_path / "sidebar.py"), "exec",
+    )
+    module = ModuleType("freeze_sidebar")
+    module.__file__ = str(module_path / "sidebar.pyc")
+    sys.modules[module.__name__] = module
+    try:
+        exec(source, module.__dict__)
+        assert "return psx" in inspect.getsource(module.Sidebar)
+    finally:
+        sys.modules.pop(module.__name__, None)
