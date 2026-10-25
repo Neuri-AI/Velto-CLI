@@ -331,14 +331,21 @@ class FreezeDesktopUseCase:
         if isinstance(settings_collect_all, list):
             collect_all.extend(settings_collect_all)
 
-        protection_raw = (
-            build_data.get("resource_protection")
-            or build_data.get("protected_resources")
-            or self._settings.get_optional("resource_protection", {})
-            or self._settings.get_optional("protected_resources", {})
-        )
+        # A frozen release protects its whole resource tree by default.
+        # Honor explicit false rather than accidentally skipping it through
+        # truthy "or" precedence; the secrets-only mode remains opt-in.
+        if "resource_protection" in build_data:
+            protection_raw = build_data["resource_protection"]
+        elif "protected_resources" in build_data:
+            protection_raw = build_data["protected_resources"]
+        else:
+            protection_raw = self._settings.get_optional("resource_protection", None)
+            if protection_raw is None:
+                protection_raw = self._settings.get_optional("protected_resources", None)
+            if protection_raw is None:
+                protection_raw = {"enabled": True}
         if isinstance(protection_raw, dict):
-            protect_resources = bool(protection_raw.get("enabled", False))
+            protect_resources = bool(protection_raw.get("enabled", True))
             protected_settings_dir = str(protection_raw.get("settings_dir", "settings"))
             protected_resources_dir = str(protection_raw.get("resources_dir", "resources"))
             protected_bundle_relative_path = str(
