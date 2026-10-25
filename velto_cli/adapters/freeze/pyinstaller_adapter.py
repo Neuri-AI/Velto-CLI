@@ -285,7 +285,7 @@ class PyInstallerFreezer(FreezerPort):
             # The compiled function's co_firstlineno must still point to the
             # exact function definition; preserve all original line positions.
             reduced = "".join(
-                line if index in kept else "\\n"
+                line if index in kept else "\n"
                 for index, line in enumerate(lines, start=1)
             )
             staged = staging / relative
