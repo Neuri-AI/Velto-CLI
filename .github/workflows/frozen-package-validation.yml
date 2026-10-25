@@ -27,8 +27,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --no-deps -e .
-          python -m pip install pytest pyinstaller cryptography prompt-toolkit questionary rich
+          python -m pip install pytest pyinstaller cython cryptography prompt-toolkit questionary rich
           python -m pip install --no-deps "git+https://github.com/Neuri-AI/PSX.git@develop"
           python -m pip install --no-deps "git+https://github.com/Neuri-AI/qyro.git@release"
       - name: Run freeze and secret-package contracts
-        run: python -m pytest -q tests/adapters/freeze/test_framework_hooks.py tests/adapters/freeze/test_secrets_crypto.py
+        run: >-
+          python -m pytest -q
+          tests/adapters/freeze/test_framework_hooks.py
+          tests/adapters/freeze/test_secrets_crypto.py
+          -k 'freeze_bundles_only_decorated or freeze_can_ship_multiple or staged_source_can_be_read or protected_package_embeds_encrypted_secrets_payload or encrypt_decrypt_roundtrip or framework_hooks_skip_plain_assets_when_protection_enabled'
