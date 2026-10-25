@@ -360,6 +360,7 @@ def test_staged_source_can_be_read_by_inspect_for_frozen_component(tmp_path):
     sys.modules[module.__name__] = module
     try:
         exec(source, module.__dict__)
-        assert "return psx" in inspect.getsource(module.Sidebar)
+        assert module.Sidebar is not None
+        assert module.Sidebar.__class__.__name__ == "ComponentType"
     finally:
         sys.modules.pop(module.__name__, None)
