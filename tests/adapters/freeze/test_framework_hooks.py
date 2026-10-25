@@ -261,3 +261,106 @@ def test_copy_mac_resources_skips_plain_resources_when_protected(tmp_path):
     freezer._copy_mac_resources(project_root, app_bundle, manifest)
 
     assert not (resources_dest / "linux" / "icons" / "128.png").exists()
+
+
+def test_freeze_bundles_only_decorated_psx_source_with_original_line_numbers(tmp_path, monkeypatch):
+    (tmp_path / "main.py").write_text("from components.sidebar import Sidebar\n", encoding="utf-8")
+    package = tmp_path / "components"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    original = (
+        "API_PASSWORD = 'do-not-package-module-constants'\n"
+        "from velto.ui import component, psx\n"
+        "\n"
+        "@component\n"
+        "def Sidebar():\n"
+        "    return psx('''<div>Sidebar</div>''')\n"
+        "\n"
+        "def unrelated():\n"
+        "    return 'do-not-package-this-function'\n"
+    )
+    (package / "sidebar.py").write_text(original, encoding="utf-8")
+    freezer = PyInstallerFreezer(FrameworkHookResolver())
+    monkeypatch.setattr(
+        freezer, "_prepare_protected_secrets_package",
+        lambda **_: (tmp_path / "resources.pak", tmp_path / "runtime.pyd"),
+    )
+    manifest = FreezeManifest(app_name="MyApp", binding="PySide6",
+                              entry_point="main.py", target_platform="windows",
+                              protect_resources=False)
+    cmd = freezer.build_command(tmp_path, manifest)
+    resources = [cmd[i + 1] for i, item in enumerate(cmd) if item == "--add-data"]
+    source_entry = next(item for item in resources if "sidebar.py" in item)
+    path, destination = source_entry.split(";")
+    assert destination == "components"
+    staged = Path(path)
+    assert staged.is_file()
+    assert "def Sidebar():" in staged.read_text(encoding="utf-8")
+    assert "do-not-package" not in staged.read_text(encoding="utf-8")
+    assert len(staged.read_text(encoding="utf-8").splitlines()) == len(original.splitlines())
+    assert staged.parent != tmp_path / "build" / "temp"
+    assert (package / "sidebar.py").read_text(encoding="utf-8") == original
+
+
+def test_freeze_can_ship_multiple_component_definitions_without_exposing_other_code(tmp_path):
+    from velto_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
+    package = tmp_path / "components"
+    package.mkdir()
+    (package / "charts.py").write_text(
+        "SECRET = 'hidden-value'\n"
+        "@component\n"
+        "def Chart():\n"
+        "    return psx('''<div>Chart</div>''')\n"
+        "def helper():\n"
+        "    return SECRET\n"
+        "@component\n"
+        "def Info():\n"
+        "    return psx('''<div>Info</div>''')\n",
+        encoding="utf-8",
+    )
+    manifest = FreezeManifest(app_name="MyApp", target_platform="windows")
+    args = PyInstallerFreezer._psx_component_source_args(tmp_path, manifest)
+    assert len(args) == 2
+    content = Path(args[1].split(";")[0]).read_text(encoding="utf-8")
+    assert "def Chart" in content and "def Info" in content
+    assert "SECRET" not in content and "def helper" not in content
+
+
+def test_staged_source_can_be_read_by_inspect_for_frozen_component(tmp_path):
+    import inspect
+    import importlib.util
+    import sys
+    from types import ModuleType
+    root = tmp_path / "project"
+    path = root / "components"
+    path.mkdir(parents=True)
+    (path / "sidebar.py").write_text(
+        "from psx.core.component import component\n"
+        "from psx import psx\n"
+        "@component\n"
+        "def Sidebar():\n"
+        "    return psx('''<div>Sidebar</div>''')\n",
+        encoding="utf-8",
+    )
+    manifest = FreezeManifest(app_name="MyApp", target_platform="windows")
+    args = PyInstallerFreezer._psx_component_source_args(root, manifest)
+    staged = Path(args[1].split(";")[0])
+    assert staged.exists()
+    # PyInstaller's module.__file__ points to _internal/components/sidebar.pyc;
+    # the staged data supplies the sibling .py used by inspect.getsourcelines.
+    module_path = tmp_path / "frozen" / "components"
+    module_path.mkdir(parents=True)
+    (module_path / "sidebar.py").write_bytes(staged.read_bytes())
+    source = compile(
+        (path / "sidebar.py").read_text(encoding="utf-8"),
+        str(module_path / "sidebar.py"), "exec",
+    )
+    module = ModuleType("freeze_sidebar")
+    module.__file__ = str(module_path / "sidebar.pyc")
+    sys.modules[module.__name__] = module
+    try:
+        exec(source, module.__dict__)
+        assert module.Sidebar is not None
+        assert module.Sidebar.__class__.__name__ == "ComponentType"
+    finally:
+        sys.modules.pop(module.__name__, None)

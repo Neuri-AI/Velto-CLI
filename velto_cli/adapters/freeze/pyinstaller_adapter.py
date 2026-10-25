@@ -5,6 +5,7 @@ Constructs arguments, creates Windows UAC manifests, handles debug/onefile/onedi
 runs the PyInstaller process cleanly, and captures output artifacts.
 """
 
+import ast
 import fnmatch
 import hashlib
 import hmac
@@ -151,6 +152,13 @@ class PyInstallerFreezer(FreezerPort):
         framework_args = self._resolver.resolve_args(project_root, manifest)
         cmd.extend(framework_args)
 
+        # PyInstaller retains imported Python modules as bytecode, while
+        # PSX @component compiles literal markup from inspect.getsourcelines
+        # at import time. Ship only the required decorated definitions as a
+        # line-number-preserving source mirror; never ship whole modules or
+        # unrelated module-level code and constants.
+        cmd.extend(self._psx_component_source_args(project_root, manifest))
+
         if manifest.protect_resources:
             package_path, runtime_secret_module_path = self._prepare_protected_resources_package(
                 project_root=project_root,
@@ -236,6 +244,57 @@ class PyInstallerFreezer(FreezerPort):
 
         cmd.append("-y")  # Overwrite output directory without prompting
         return cmd
+
+    @staticmethod
+    def _psx_component_source_args(project_root: Path, manifest: FreezeManifest) -> List[str]:
+        """Stage minimal, location-preserving sources for frozen @component."""
+        separator = ";" if manifest.target_platform == "windows" else ":"
+        staging = project_root / "build" / "psx-component-sources"
+        args: List[str] = []
+        excluded = {".git", ".velto", ".venv", "venv", "build", "dist",
+                    "__pycache__", ".tox", ".pytest_cache", "node_modules"}
+        for source in sorted(project_root.rglob("*.py")):
+            relative = source.relative_to(project_root)
+            if any(part in excluded for part in relative.parts):
+                continue
+            if source.is_symlink() or not source.is_file():
+                continue
+            original = source.read_text(encoding="utf-8")
+            try:
+                tree = ast.parse(original, filename=str(source))
+            except SyntaxError:
+                # PyInstaller will report source syntax errors normally.
+                continue
+            decorated = [
+                node for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and any(
+                    isinstance(decorator, ast.Name) and decorator.id == "component"
+                    or isinstance(decorator, ast.Attribute) and decorator.attr == "component"
+                    for decorator in node.decorator_list
+                )
+            ]
+            if not decorated:
+                continue
+            lines = original.splitlines(keepends=True)
+            kept = set()
+            for node in decorated:
+                first = min((item.lineno for item in node.decorator_list),
+                            default=node.lineno)
+                kept.update(range(first, node.end_lineno + 1))
+            # The compiled function's co_firstlineno must still point to the
+            # exact function definition; preserve all original line positions.
+            reduced = "".join(
+                line if index in kept else "\n"
+                for index, line in enumerate(lines, start=1)
+            )
+            staged = staging / relative
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            staged.write_text(reduced, encoding="utf-8")
+            destination = relative.parent.as_posix()
+            args.extend(["--add-data",
+                         f"{staged.as_posix()}{separator}{destination}"])
+        return args
 
     def freeze(
         self,
