@@ -28,6 +28,7 @@ from velto_cli.adapters.templates.github_cached import (
 from velto_cli.adapters.freeze.framework_hooks import FrameworkHookResolver
 from velto_cli.adapters.freeze.optimizer import BinaryOptimizer
 from velto_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
+from velto_cli.adapters.freeze.psx_source_preparer import PSXProjectSourcePreparer
 from velto_cli.application.use_cases.freeze import FreezeDesktopUseCase
 from velto_cli.application.use_cases.bundle import BundleReleaseUseCase
 from velto_cli.application.use_cases.clean import CleanProjectUseCase
@@ -84,8 +85,10 @@ class Container:
         self.optimizer = BinaryOptimizer(ui=self.ui)
         self.bundler = ReleaseBundler()
         self.signer = CompiledAppSigner()
+        self.source_preparer = PSXProjectSourcePreparer()
         self.freezer = PyInstallerFreezer(
             resolver=self.hook_resolver,
+            source_preparer=self.source_preparer,
             ui=self.ui,
             progress=self.progress,
         )
