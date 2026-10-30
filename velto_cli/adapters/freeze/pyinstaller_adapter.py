@@ -52,9 +52,9 @@ class PyInstallerFreezer(FreezerPort):
     def __init__(
         self,
         resolver: FrameworkHookResolverPort,
-        source_preparer: SourcePreparerPort | None = None,
         ui: Optional[UserInteractionPort] = None,
         progress: Optional[ProgressPort] = None,
+        source_preparer: SourcePreparerPort | None = None,
     ):
         self._resolver = resolver
         self._source_preparer = source_preparer or PSXProjectSourcePreparer()
