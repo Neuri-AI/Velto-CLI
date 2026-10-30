@@ -266,16 +266,16 @@ def test_copy_mac_resources_skips_plain_resources_when_protected(tmp_path):
 def test_freeze_precompiles_components_without_shipping_python_data(tmp_path, monkeypatch):
     pytest.importorskip("psx")
     (tmp_path / "main.py").write_text(
-        "from components.sidebar import Sidebar\\n", encoding="utf-8",
+        "from components.sidebar import Sidebar\n", encoding="utf-8",
     )
     package = tmp_path / "components"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
     original = (
-        "from psx import component, psx\\n"
-        "@component\\n"
-        "def Sidebar():\\n"
-        "    return psx('<div><p>Sidebar</p></div>')\\n"
+        "from psx import component, psx\n"
+        "@component\n"
+        "def Sidebar():\n"
+        "    return psx('<div><p>Sidebar</p></div>')\n"
     )
     (package / "sidebar.py").write_text(original, encoding="utf-8")
     freezer = PyInstallerFreezer(FrameworkHookResolver())
@@ -309,14 +309,14 @@ def test_precompiled_modules_import_without_readable_original_source(tmp_path):
     original.mkdir()
     (original / "__init__.py").write_text("", encoding="utf-8")
     (original / "sidebar.py").write_text(
-        "from psx import component, psx\\n"
-        "@component\\n"
-        "def Sidebar():\\n"
-        "    return psx('<div><p>Frozen</p></div>')\\n",
+        "from psx import component, psx\n"
+        "@component\n"
+        "def Sidebar():\n"
+        "    return psx('<div><p>Frozen</p></div>')\n",
         encoding="utf-8",
     )
     entry = tmp_path / "main.py"
-    entry.write_text("from components.sidebar import Sidebar\\n", encoding="utf-8")
+    entry.write_text("from components.sidebar import Sidebar\n", encoding="utf-8")
     prepared, staging = PSXProjectSourcePreparer().prepare(tmp_path, entry)
     assert prepared == staging / "main.py"
 
@@ -341,12 +341,12 @@ def test_source_exposure_guard_rejects_plaintext_app_modules(tmp_path):
     from velto_cli.domain.build import BundleMode
     from velto_cli.domain.errors import QyroError
 
-    (tmp_path / "main.py").write_text("print(1)\\n")
+    (tmp_path / "main.py").write_text("print(1)\n")
     (tmp_path / "components").mkdir()
-    (tmp_path / "components" / "sidebar.py").write_text("print(2)\\n")
+    (tmp_path / "components" / "sidebar.py").write_text("print(2)\n")
     frozen = tmp_path / "frozen" / "_internal" / "components"
     frozen.mkdir(parents=True)
-    (frozen / "sidebar.py").write_text("print(2)\\n")
+    (frozen / "sidebar.py").write_text("print(2)\n")
     with pytest.raises(QyroError, match="plaintext application Python sources"):
         SourceExposureGuard().verify(
             project_root=tmp_path,
