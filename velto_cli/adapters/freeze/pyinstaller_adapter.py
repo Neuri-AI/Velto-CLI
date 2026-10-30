@@ -327,14 +327,22 @@ class PyInstallerFreezer(FreezerPort):
         if manifest.optimization.bytecode_opt > 0:
             env["PYTHONOPTIMIZE"] = str(manifest.optimization.bytecode_opt)
 
-        process = subprocess.run(
-            cmd,
-            cwd=str(project_root),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
+        try:
+            process = subprocess.run(
+                cmd,
+                cwd=str(project_root),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        finally:
+            # Staged modules contain transformed Python source: they are build
+            # inputs, never distributable artifacts. Remove them on both
+            # successful and failed PyInstaller execution.
+            staging = (project_root / "build" / "psx-compiled").resolve()
+            if prepared_entry != authored_entry and Path(analysis_root).resolve() == staging:
+                shutil.rmtree(staging, ignore_errors=True)
 
         if self._progress:
             self._progress.stop()
