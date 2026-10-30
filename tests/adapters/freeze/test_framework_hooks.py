@@ -355,3 +355,57 @@ def test_source_exposure_guard_rejects_plaintext_app_modules(tmp_path):
             executable_path=tmp_path / "frozen" / "MyApp",
             mode=BundleMode.ONEDIR,
         )
+
+
+def test_freeze_cleans_temporary_precompiled_source_tree(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from velto_cli.adapters.freeze.psx_source_preparer import PSXProjectSourcePreparer
+
+    (tmp_path / "main.py").write_text(
+        "from psx import component, psx\n"
+        "@component\n"
+        "def View():\n"
+        "    return psx('<Text>Frozen</Text>')\n",
+        encoding="utf-8",
+    )
+    freezer = PyInstallerFreezer(
+        FrameworkHookResolver(), source_preparer=PSXProjectSourcePreparer(),
+    )
+    monkeypatch.setattr(
+        freezer, "_prepare_protected_secrets_package",
+        lambda **_: (tmp_path / "resources.pak", tmp_path / "runtime.so"),
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.freeze.pyinstaller_adapter.subprocess.run",
+        lambda *args, **kwargs: Mock(returncode=0, stdout=""),
+    )
+    manifest = FreezeManifest(
+        app_name="MyApp", binding="PySide6", entry_point="main.py",
+        target_platform="linux", protect_resources=False,
+    )
+    freezer.freeze(tmp_path, manifest)
+    assert not (tmp_path / "build" / "psx-compiled").exists()
+    assert "def View()" in (tmp_path / "main.py").read_text(encoding="utf-8")
+
+
+def test_source_exposure_guard_rejects_onefile_archive_data(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from PyInstaller.archive import readers
+    from velto_cli.adapters.freeze.source_exposure_guard import SourceExposureGuard
+    from velto_cli.domain.build import BundleMode
+    from velto_cli.domain.errors import QyroError
+
+    (tmp_path / "components").mkdir()
+    (tmp_path / "components" / "sidebar.py").write_text("print('secret')\n")
+    monkeypatch.setattr(
+        readers, "CArchiveReader",
+        lambda _: Mock(toc={"components/sidebar.py": object()}),
+    )
+    with pytest.raises(QyroError, match="plaintext application Python sources"):
+        SourceExposureGuard().verify(
+            project_root=tmp_path,
+            entry_point=tmp_path / "main.py",
+            output_dir=tmp_path / "dist",
+            executable_path=tmp_path / "dist" / "MyApp",
+            mode=BundleMode.ONEFILE,
+        )
