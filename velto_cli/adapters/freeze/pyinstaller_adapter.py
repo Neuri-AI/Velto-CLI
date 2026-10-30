@@ -384,7 +384,7 @@ class PyInstallerFreezer(FreezerPort):
         # Includes inspection of onefile CArchive data entries.
         self._source_guard.verify(
             project_root=project_root,
-            entry_point=entry_script,
+            entry_point=project_root / manifest.entry_point,
             output_dir=out_folder,
             executable_path=out_exe,
             mode=manifest.bundle_mode,
