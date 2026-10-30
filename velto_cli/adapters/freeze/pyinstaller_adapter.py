@@ -5,7 +5,6 @@ Constructs arguments, creates Windows UAC manifests, handles debug/onefile/onedi
 runs the PyInstaller process cleanly, and captures output artifacts.
 """
 
-import ast
 import fnmatch
 import hashlib
 import hmac
@@ -33,7 +32,9 @@ from velto_cli.domain.build import (
 )
 from velto_cli.adapters.freeze.secrets_crypto import encrypt_secrets_payload
 from velto_cli.adapters.persistence.storage import SIGNING_SETTING_KEYS
-from velto_cli.adapters.process.runners import _prepared_psx_entry_point
+from velto_cli.application.ports import SourcePreparerPort
+from velto_cli.adapters.freeze.psx_source_preparer import PSXProjectSourcePreparer
+from velto_cli.adapters.freeze.source_exposure_guard import SourceExposureGuard
 from velto_cli.domain.errors import QyroError, FreezeExecutionError
 
 
@@ -51,10 +52,13 @@ class PyInstallerFreezer(FreezerPort):
     def __init__(
         self,
         resolver: FrameworkHookResolverPort,
+        source_preparer: SourcePreparerPort | None = None,
         ui: Optional[UserInteractionPort] = None,
         progress: Optional[ProgressPort] = None,
     ):
         self._resolver = resolver
+        self._source_preparer = source_preparer or PSXProjectSourcePreparer()
+        self._source_guard = SourceExposureGuard()
         self._ui = ui
         self._progress = progress
 
@@ -75,14 +79,14 @@ class PyInstallerFreezer(FreezerPort):
                 hint="Verify 'entry_point' in settings/base.json or build.json.",
             )
 
-        # Match `qyro start`: freeze lexical PSX templates as ordinary Python
-        # rather than relying on the untransformed runtime explicit-scope API.
-        with _prepared_psx_entry_point(
-            str(entry_script), output_dir=project_root / "build" / "temp" / "psx"
-        ) as prepared_script:
-            cmd.append(prepared_script)
-            if prepared_script != str(entry_script):
-                cmd.extend(["--paths", str(project_root)])
+        # Precompile all project imports before PyInstaller collects bytecode.
+        # The precompiled .py tree is build-only and never passed via --add-data.
+        prepared_script, import_root = self._source_preparer.prepare(
+            project_root, entry_script,
+        )
+        cmd.append(str(prepared_script))
+        if import_root != project_root:
+            cmd.extend(["--paths", str(import_root)])
 
         # Application Name
         cmd.extend(["--name", manifest.app_name])
@@ -151,13 +155,6 @@ class PyInstallerFreezer(FreezerPort):
         # Framework-specific hooks (Qt, Kivy, Tkinter, resources)
         framework_args = self._resolver.resolve_args(project_root, manifest)
         cmd.extend(framework_args)
-
-        # PyInstaller retains imported Python modules as bytecode, while
-        # PSX @component compiles literal markup from inspect.getsourcelines
-        # at import time. Ship only the required decorated definitions as a
-        # line-number-preserving source mirror; never ship whole modules or
-        # unrelated module-level code and constants.
-        cmd.extend(self._psx_component_source_args(project_root, manifest))
 
         if manifest.protect_resources:
             package_path, runtime_secret_module_path = self._prepare_protected_resources_package(
@@ -244,57 +241,6 @@ class PyInstallerFreezer(FreezerPort):
 
         cmd.append("-y")  # Overwrite output directory without prompting
         return cmd
-
-    @staticmethod
-    def _psx_component_source_args(project_root: Path, manifest: FreezeManifest) -> List[str]:
-        """Stage minimal, location-preserving sources for frozen @component."""
-        separator = ";" if manifest.target_platform == "windows" else ":"
-        staging = project_root / "build" / "psx-component-sources"
-        args: List[str] = []
-        excluded = {".git", ".velto", ".venv", "venv", "build", "dist",
-                    "__pycache__", ".tox", ".pytest_cache", "node_modules"}
-        for source in sorted(project_root.rglob("*.py")):
-            relative = source.relative_to(project_root)
-            if any(part in excluded for part in relative.parts):
-                continue
-            if source.is_symlink() or not source.is_file():
-                continue
-            original = source.read_text(encoding="utf-8")
-            try:
-                tree = ast.parse(original, filename=str(source))
-            except SyntaxError:
-                # PyInstaller will report source syntax errors normally.
-                continue
-            decorated = [
-                node for node in tree.body
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and any(
-                    isinstance(decorator, ast.Name) and decorator.id == "component"
-                    or isinstance(decorator, ast.Attribute) and decorator.attr == "component"
-                    for decorator in node.decorator_list
-                )
-            ]
-            if not decorated:
-                continue
-            lines = original.splitlines(keepends=True)
-            kept = set()
-            for node in decorated:
-                first = min((item.lineno for item in node.decorator_list),
-                            default=node.lineno)
-                kept.update(range(first, node.end_lineno + 1))
-            # The compiled function's co_firstlineno must still point to the
-            # exact function definition; preserve all original line positions.
-            reduced = "".join(
-                line if index in kept else "\n"
-                for index, line in enumerate(lines, start=1)
-            )
-            staged = staging / relative
-            staged.parent.mkdir(parents=True, exist_ok=True)
-            staged.write_text(reduced, encoding="utf-8")
-            destination = relative.parent.as_posix()
-            args.extend(["--add-data",
-                         f"{staged.as_posix()}{separator}{destination}"])
-        return args
 
     def freeze(
         self,
@@ -433,6 +379,16 @@ class PyInstallerFreezer(FreezerPort):
         # If binding is Kivy, replace default Kivy logo files in output with user's custom icon
         if str(manifest.binding).lower() == "kivy":
             self._override_kivy_icons_in_output(out_folder, project_root)
+
+        # Fail closed if any authored .py file escaped as distributable data.
+        # Includes inspection of onefile CArchive data entries.
+        self._source_guard.verify(
+            project_root=project_root,
+            entry_point=entry_script,
+            output_dir=out_folder,
+            executable_path=out_exe,
+            mode=manifest.bundle_mode,
+        )
 
         # Sign macOS app bundle as the final step after all file modifications are complete
         if is_mac_target:
