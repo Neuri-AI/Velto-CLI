@@ -310,8 +310,17 @@ class PyInstallerFreezer(FreezerPort):
                 if p and "site-packages" not in p.lower():
                     cleaned_paths.append(p)
 
+        # PyInstaller analysis must resolve project imports from the staged
+        # transformed tree, never from original .py files in project_root.
+        prepared_entry = Path(cmd[3]).resolve()
+        authored_entry = (project_root / manifest.entry_point).resolve()
+        analysis_root = (
+            cmd[cmd.index("--paths") + 1]
+            if prepared_entry != authored_entry and "--paths" in cmd
+            else str(project_root)
+        )
         env["PYTHONPATH"] = (
-            str(project_root) + (os.pathsep + os.pathsep.join(cleaned_paths) if cleaned_paths else "")
+            analysis_root + (os.pathsep + os.pathsep.join(cleaned_paths) if cleaned_paths else "")
         )
 
         # Bytecode optimization flag
