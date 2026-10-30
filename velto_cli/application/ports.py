@@ -245,6 +245,12 @@ class ProgressPort(Protocol):
         ...
 
 
+class SourcePreparerPort(Protocol):
+    """Prepares authored modules for analysis without runtime source files."""
+
+    def prepare(self, project_root: Path, entry_point: Path) -> tuple[Path, Path]: ...
+
+
 class FreezerPort(Protocol):
     """Executes Python application freezing (e.g. PyInstaller adapter)."""
 
