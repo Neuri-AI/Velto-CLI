@@ -2,7 +2,7 @@ name: Frozen component and resource validation
 
 on:
   push:
-    branches: [fixes/frozen-components-resources]
+    branches: [release]
   pull_request:
     branches: [release]
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.12"]
     runs-on: ${{ matrix.os }}
     steps:
@@ -28,14 +28,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --no-deps -e .
           python -m pip install pytest pyinstaller cython cryptography prompt-toolkit questionary rich
-          python -m pip install --no-deps "git+https://github.com/Neuri-AI/PSX.git@develop"
+          python -m pip install --no-deps "git+https://github.com/Neuri-AI/PSX.git@fixes/psx-issues"
           python -m pip install --no-deps "git+https://github.com/Neuri-AI/qyro.git@release"
       - name: Run freeze and secret-package contracts
         run: >-
           python -m pytest -q
           tests/adapters/freeze/test_framework_hooks.py
           tests/adapters/freeze/test_secrets_crypto.py
-          -k 'freeze_bundles_only_decorated or freeze_can_ship_multiple or staged_source_can_be_read or protected_package_embeds_encrypted_secrets_payload or encrypt_decrypt_roundtrip or framework_hooks_skip_plain_assets_when_protection_enabled'
+          -k 'freeze_precompiles_components or precompiled_modules_import_without or source_exposure_guard or protected_package_embeds_encrypted_secrets_payload or encrypt_decrypt_roundtrip or framework_hooks_skip_plain_assets_when_protection_enabled'
 
       - name: Execute real frozen PSX component on host OS
         run: python tests/integration/frozen_component_smoke.py
