@@ -1,8 +1,8 @@
-name: Qyro Matrix Tests
+name: Velto CLI Matrix Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, release]
     paths-ignore:
       - "README.md"
       - "**/*.md"
@@ -63,7 +63,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # ISO week: refresh caches weekly
       - name: Compute cache week
@@ -138,7 +138,7 @@ jobs:
             --keep-projects
 
       # Kivy needs an OpenGL context; macOS/Windows runners have no GPU, so the
-      # `qyro start` smoke test is skipped there (init, build and bundle still run).
+      # `velto start` smoke test is skipped there (init, build and bundle still run).
       # On Windows, Kivy uses ANGLE (Direct3D software rendering) instead of WGL.
       - name: Run orchestrator (Windows / macOS)
         if: runner.os != 'Linux'
@@ -183,7 +183,7 @@ jobs:
         with:
           name: logs-${{ matrix.os }}-py${{ matrix.python-version }}-${{ matrix.framework }}
           path: |
-            qyro-matrix-results/**/logs/*.log
+            velto-matrix-results/**/logs/*.log
             qyro-matrix-results/**/build/build_log.txt
           if-no-files-found: ignore
           retention-days: 5
