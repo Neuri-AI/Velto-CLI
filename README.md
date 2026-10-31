@@ -1,6 +1,6 @@
 <p align="center">
   <img
-    src="https://ik.imagekit.io/kummiktgaiq/ppg/velto-logo.svg?updatedAt=1755215983279"
+    src="https://ik.imagekit.io/kummiktgaiq/ppg/velto-cli-logo__9YyFURXX.png"
     alt="velto Logo"
     width="50%"
   >
@@ -74,16 +74,16 @@ init → start → build → bundle
 | PySide6 | Windows | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | PySide6 | macOS | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | PySide6 | Linux | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
-| PySide2 | Linux | — | — | — | — | — | No CI coverage |
-| PySide2 | Windows | — | — | — | — | — | No CI coverage |
-| PySide2 | macOS | — | — | — | — | — | No CI coverage |
+| PySide2 | Linux | ✅ | ❌ | ❌ | ❌ | ❌ | No official PySide2 wheels for Python 3.11+ |
+| PySide2 | Windows | ✅ | ❌ | ❌ | ❌ | ❌ | No official PySide2 wheels for Python 3.11+ |
+| PySide2 | macOS | ❌ | ❌ | ❌ | ❌ | ❌ | No official PySide2 wheels for Apple Silicon |
 | PyQt6 | Windows | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | PyQt6 | macOS | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | PyQt6 | Linux | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | PyQt5 | Windows | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | PyQt5 | macOS | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | PyQt5 | Linux | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
-| Kivy | Windows | ✅ | ✅ | ✅ | ✅ | ❌ | Python 3.14 failed at `install` |
+| Kivy | Windows | ✅ | ✅ | ✅ | ✅ | ❌ | No official Kivy wheels for Python 3.14+ |
 | Kivy | macOS | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | Kivy | Linux | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
 | Tkinter | Windows | ✅ | ✅ | ✅ | ✅ | ✅ | Full pass |
