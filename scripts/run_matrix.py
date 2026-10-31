@@ -420,7 +420,7 @@ def install_project(
         install_package(
             conda,
             environment,
-            "qyro",
+            "qyro-engine>=0.1.0,<1.0.0",
             log_file,
         )
 
@@ -453,13 +453,13 @@ def create_project(
     project_dir = (workspace / project_name).resolve()
 
     command = [
-        "qyro",
+        "velto",
         "init",
         "--name",
         project_name,
         "--target-platform",
         "desktop",
-        "--binding",
+        "--framework",
         case.framework,
         "--app-name",
         "SampleApp",
@@ -932,7 +932,7 @@ def write_summary(
     summary_file = results_root / "summary.md"
 
     lines = [
-        "# Qyro Compatibility Test Summary",
+        "# Velto CLI Compatibility Test Summary",
         "",
         f"- Host platform: `{platform.platform()}`",
         f"- Host Python: `{platform.python_version()}`",
@@ -1033,8 +1033,8 @@ def parse_arguments() -> argparse.Namespace:
         "--cli-source",
         type=Path,
         help=(
-            "Local qyro-cli checkout. If omitted, qyro-cli is "
-            "installed from GitHub."
+            "Local Velto-CLI checkout. If omitted, Velto-CLI is "
+            "installed from PyPI."
         ),
     )
 
@@ -1051,8 +1051,8 @@ def parse_arguments() -> argparse.Namespace:
         "--cli-repository",
         default=DEFAULT_CLI_REPOSITORY,
         help=(
-            "Git repository used to install qyro-cli when "
-            "--cli-source is not provided."
+            "Legacy Git repository URL (unused; CLI installs from PyPI when "
+            "--cli-source is not provided)."
         ),
     )
 
