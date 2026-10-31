@@ -394,7 +394,7 @@ def install_project(
         log_file,
     )
 
-    # `qyro init` uses Poetry; it is not guaranteed on CI runners.
+    # `velto init` uses Poetry; it is not guaranteed on CI runners.
     install_package(
         conda,
         environment,
@@ -1019,7 +1019,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("qyro-matrix-results"),
+        default=Path("velto-matrix-results"),
         help="Directory for generated projects and logs.",
     )
 
