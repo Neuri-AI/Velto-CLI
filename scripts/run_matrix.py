@@ -17,7 +17,7 @@ from typing import TextIO
 
 
 DEFAULT_CLI_REPOSITORY = (
-    "https://github.com/Neuri-AI/qyro-cli.git"
+    "https://github.com/Neuri-AI/Velto-CLI.git"
 )
 
 # Maximum seconds any single subprocess may run before its whole
@@ -435,7 +435,7 @@ def install_project(
         install_package(
             conda,
             environment,
-            f"git+{cli_repository}",
+            "velto-cli",
             log_file,
         )
 
@@ -507,7 +507,7 @@ def create_project(
 
     if not project_dir.exists():
         raise RuntimeError(
-            "qyro init completed, but the project was not created: "
+            "velto init completed, but the project was not created: "
             f"{project_dir}"
         )
 
@@ -599,7 +599,7 @@ def start_application(
     command = conda_run_command(
         conda,
         environment,
-        ["qyro", "start"],
+        ["velto", "start"],
         cwd=project_dir,
     )
 
@@ -640,7 +640,7 @@ def start_application(
                     return
 
                 raise RuntimeError(
-                    "qyro start exited during startup with exit code "
+                    "velto start exited during startup with exit code "
                     f"{return_code}"
                 )
 
@@ -657,7 +657,7 @@ def start_application(
 
         if return_code is not None and return_code != 0:
             raise RuntimeError(
-                "qyro start exited unexpectedly with exit code "
+                "velto start exited unexpectedly with exit code "
                 f"{return_code}"
             )
 
@@ -675,7 +675,7 @@ def run_build(
     run_in_conda(
         conda,
         environment,
-        ["qyro", "build", "--clean"],
+        ["velto", "build", "--clean"],
         cwd=project_dir,
         log_file=log_file,
     )
@@ -690,7 +690,7 @@ def run_bundle(
     run_in_conda(
         conda,
         environment,
-        ["qyro", "bundle"],
+        ["velto", "bundle"],
         cwd=project_dir,
         log_file=log_file,
     )
@@ -991,7 +991,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Create Conda environments and test the complete "
-            "Qyro workflow."
+            "Velto CLI workflow."
         )
     )
 
@@ -1025,7 +1025,7 @@ def parse_arguments() -> argparse.Namespace:
 
     parser.add_argument(
         "--prefix",
-        default="qyro",
+        default="velto",
         help="Prefix used for Conda environment names.",
     )
 
@@ -1042,7 +1042,7 @@ def parse_arguments() -> argparse.Namespace:
         "--runtime-source",
         type=Path,
         help=(
-            "Local qyro checkout. If omitted, qyro is installed "
+            "Local Qyro Engine checkout. If omitted, qyro-engine is installed "
             "from PyPI."
         ),
     )
@@ -1061,7 +1061,7 @@ def parse_arguments() -> argparse.Namespace:
         type=float,
         default=15.0,
         help=(
-            "Seconds to wait for qyro start to remain alive "
+            "Seconds to wait for velto start to remain alive "
             "after launching."
         ),
     )
@@ -1071,7 +1071,7 @@ def parse_arguments() -> argparse.Namespace:
         type=float,
         default=5.0,
         help=(
-            "Seconds to keep qyro start alive after startup "
+            "Seconds to keep velto start alive after startup "
             "validation."
         ),
     )
@@ -1082,7 +1082,7 @@ def parse_arguments() -> argparse.Namespace:
         choices=sorted(FRAMEWORK_PACKAGES),
         default=[],
         help=(
-            "Frameworks for which the `qyro start` smoke test is "
+            "Frameworks for which the `velto start` smoke test is "
             "skipped (e.g. CI runners without a GPU)."
         ),
     )
