@@ -1,9 +1,9 @@
-# Qyro CLI configuration reference
+# Velto CLI configuration reference
 
 This reference explains every configuration file used by the desktop workflow: `settings/base.json`, the platform profiles, `build.json`, `settings/release.json`, `settings/sign.json`, and `settings/secrets.json`.
 
 > [!TIP]
-> The recommended starting point is [Qyro Settings Builder](https://qyro-settings-builder.up.railway.app/). Export the non-secret files into `settings/`, then review them before building. Create `secrets.json` and `sign.json` locally; do not submit passwords, tokens, certificates, or private keys to a web form.
+> The recommended starting point is [Velto Settings Builder](https://qyro-settings-builder.up.railway.app/). Export the non-secret files into `settings/`, then review them before building. Create `secrets.json` and `sign.json` locally; do not submit passwords, tokens, certificates, or private keys to a web form.
 
 ## Files and consumers
 
@@ -22,14 +22,14 @@ my-app/
 
 | File | Used by | Purpose |
 | --- | --- | --- |
-| `settings/base.json` | CLI and Qyro Engine | Application identity, entry point, framework, and common values. |
-| Platform JSON | CLI and Qyro Engine | Host-specific overrides. |
-| `build.json` | `qyro build` only | Freezer-specific override at the project root. |
+| `settings/base.json` | CLI and Velto Engine | Application identity, entry point, framework, and common values. |
+| Platform JSON | CLI and Velto Engine | Host-specific overrides. |
+| `build.json` | `Velto build` only | Freezer-specific override at the project root. |
 | `settings/release.json` | `build`, `bundle`, and `sign` | Release build, packaging, and protection options. |
-| `settings/sign.json` | `qyro sign` only | Local signing and notarization configuration. Never bundled or committed. |
+| `settings/sign.json` | `Velto sign` only | Local signing and notarization configuration. Never bundled or committed. |
 | `settings/secrets.json` | CLI and Engine | Protected application values needed at runtime. Never commit it. |
 
-The CLI deep-merges JSON objects; nested keys that are not overwritten survive. Arrays and scalar values are replaced while loading profiles. During a normal `qyro build`, the effective order is:
+The CLI deep-merges JSON objects; nested keys that are not overwritten survive. Arrays and scalar values are replaced while loading profiles. During a normal `Velto build`, the effective order is:
 
 ```text
 base.json → host platform → selected profile (release by default)
@@ -48,8 +48,8 @@ Invalid JSON, and JSON whose top level is not an object, is silently ignored by 
 
 ```json
 {
-  "app_name": "QyroKivyApp",
-  "author": "Qyro Team",
+  "app_name": "VeltoKivyApp",
+  "author": "Velto Team",
   "entry_point": "main.py",
   "addons": [],
   "version": "1.0.0",
@@ -82,7 +82,7 @@ Invalid JSON, and JSON whose top level is not an object, is silently ignored by 
 
 Framework hooks already add core modules for the selected binding and exclude competing GUI bindings. Add a hidden import when a module is loaded dynamically and PyInstaller cannot discover it. Use `collect_all` instead when a package also needs data files or native libraries.
 
-Unknown keys remain available to Qyro Engine through `context.app_settings`, but the CLI does not act on them unless a use case explicitly recognizes them.
+Unknown keys remain available to Velto Engine through `context.app_settings`, but the CLI does not act on them unless a use case explicitly recognizes them.
 
 ## Common platform options
 
@@ -178,7 +178,7 @@ Relative paths should point inside the project so builds do not depend on one wo
 
 Qt plugin categories in the sample have equally concrete effects: `generic` removes generic input plugins; `networkinformation` connectivity detection; `tls` secure-transport backends; `styles` extra widget styles; `platforminputcontexts` IME/input methods; `iconengines` extra icon engines; and `imageformats` codecs such as JPEG, GIF, WebP, or SVG depending on the binding installation.
 
-The sample binaries `opengl32sw.dll`, `qdirect2d.dll`, `qoffscreen.dll`, and `qminimal.dll` are the software OpenGL renderer and Direct2D, offscreen, and minimal platform backends. Remove them only when production cannot select those backends. The `platforms` plugin directory containing `qwindows`, `qcocoa`, or `qxcb` is required to show windows and is protected by Qyro's global plugin purge.
+The sample binaries `opengl32sw.dll`, `qdirect2d.dll`, `qoffscreen.dll`, and `qminimal.dll` are the software OpenGL renderer and Direct2D, offscreen, and minimal platform backends. Remove them only when production cannot select those backends. The `platforms` plugin directory containing `qwindows`, `qcocoa`, or `qxcb` is required to show windows and is protected by Velto's global plugin purge.
 
 ## `settings/windows.json`
 
@@ -222,7 +222,7 @@ The sample binaries `opengl32sw.dll`, `qdirect2d.dll`, `qoffscreen.dll`, and `qm
 - `highestAvailable`: parsed by the model, but the current adapter does not emit a dedicated PyInstaller flag for it.
 - `requireAdministrator`: emits `--uac-admin` and triggers elevation.
 
-`uac.ui_access: true` emits `--uac-uiaccess`. It has Windows signing and installation-location requirements; do not enable it casually. A boolean `uac` is also accepted, and `qyro build --uac` forces administrator mode.
+`uac.ui_access: true` emits `--uac-uiaccess`. It has Windows signing and installation-location requirements; do not enable it casually. A boolean `uac` is also accepted, and `Velto build --uac` forces administrator mode.
 
 UPX can reduce size but can also increase antivirus false positives. Test the final, signed artifact with the intended deployment controls.
 
@@ -278,9 +278,9 @@ Windows DLL patterns in `exclude_binaries` have no useful effect in a Linux prof
 }
 ```
 
-`mac_bundle_identifier` is the reverse-DNS identifier passed to PyInstaller; `bundle_identifier` is an alias. If omitted, Qyro suggests one from author and application name. UPX is disabled on macOS regardless of the JSON value.
+`mac_bundle_identifier` is the reverse-DNS identifier passed to PyInstaller; `bundle_identifier` is an alias. If omitted, Velto suggests one from author and application name. UPX is disabled on macOS regardless of the JSON value.
 
-Use `mac_target_architecture` in `mac.json` for the macOS build target. A `universal2` build requires universal dependencies; the current flow may warn and use the build machine's native architecture instead. Qyro applies an ad-hoc signature after modifying the `.app`; distribution still requires `qyro sign` and a valid Developer ID.
+Use `mac_target_architecture` in `mac.json` for the macOS build target. A `universal2` build requires universal dependencies; the current flow may warn and use the build machine's native architecture instead. Velto applies an ad-hoc signature after modifying the `.app`; distribution still requires `Velto sign` and a valid Developer ID.
 
 ## Project-root `build.json`
 
@@ -368,7 +368,7 @@ Because `release.json` is merged before the build manifest is created, it may al
 
 `bundle.extra_files` accepts a string source copied to the release root or an object with `source` and optional `destination`. The source must exist. The destination must be relative and cannot escape the output directory.
 
-Run `qyro bundle --check` to validate these paths without packaging.
+Run `Velto bundle --check` to validate these paths without packaging.
 
 ### DMG
 
@@ -382,9 +382,9 @@ Run `qyro bundle --check` to validate these paths without packaging.
 | `background` | path | Existing background image. |
 | `extra_files` | list | Files or directories included at the DMG root. Uses the same string/object forms as `bundle.extra_files`. |
 
-`bundle.dmg.extra_files` is copied into the DMG staging directory, so it is included in the final image. It requires `create-dmg`; Qyro rejects this option when it would otherwise fall back to `hdiutil`, because that path does not support these files. Generic `bundle.extra_files` remains outside the DMG and is intended for `dir`, ZIP, and tarball releases.
+`bundle.dmg.extra_files` is copied into the DMG staging directory, so it is included in the final image. It requires `create-dmg`; Velto rejects this option when it would otherwise fall back to `hdiutil`, because that path does not support these files. Generic `bundle.extra_files` remains outside the DMG and is intended for `dir`, ZIP, and tarball releases.
 
-Any custom DMG option requires `create-dmg`. With no customization, Qyro can fall back to macOS `hdiutil`.
+Any custom DMG option requires `create-dmg`. With no customization, Velto can fall back to macOS `hdiutil`.
 
 ### NSIS
 
@@ -400,8 +400,8 @@ NSIS requires `makensis`. This execution level is independent of the frozen exec
 
 ## `settings/sign.json`
 
-This local profile contains everything consumed only by `qyro sign`. The CLI
-loads it after `release.json`; Qyro Engine never loads it, and the build system
+This local profile contains everything consumed only by `Velto sign`. The CLI
+loads it after `release.json`; Velto Engine never loads it, and the build system
 excludes it from both ordinary PyInstaller data and protected resource
 packages.
 
@@ -412,7 +412,7 @@ packages.
       "certificate": "src/sign/windows/certificate.pfx",
       "password": "certificate-password",
       "timestamp_server": "https://timestamp.digicert.com",
-      "description": "QyroKivyApp",
+      "description": "VeltoKivyApp",
       "url": "https://example.com"
     },
     "mac": {
@@ -422,7 +422,7 @@ packages.
         "enabled": true,
         "staple": true,
         "assess_gatekeeper": true,
-        "keychain_profile": "QYRO-NOTARY"
+        "keychain_profile": "Velto-NOTARY"
       }
     }
   }
@@ -443,7 +443,7 @@ before signing and remove them with the disposable workspace.
 | `description` | no | Signed description; defaults to `app_name`. |
 | `url` | no | Informational URL included in the signature. |
 
-On Windows, `qyro sign` scans `.exe`, `.cab`, `.dll`, `.ocx`, `.msi`, and `.xpi`. It requires `signtool`.
+On Windows, `Velto sign` scans `.exe`, `.cab`, `.dll`, `.ocx`, `.msi`, and `.xpi`. It requires `signtool`.
 
 ### macOS signing and notarization
 
@@ -461,7 +461,7 @@ Configure one authentication method:
 2. `notary.key_path` + `notary.key_id` and optional `notary.issuer`;
 3. `notary.apple_id` + `notary.team_id` + `notary.app_password`.
 
-The `qyro sign` flags for notarization, stapling, assessment, and keychain profile override JSON values for that invocation.
+The `Velto sign` flags for notarization, stapling, assessment, and keychain profile override JSON values for that invocation.
 
 ### Legacy signing keys
 
@@ -480,7 +480,7 @@ This file contains API keys, tokens, licenses, and other protected values requir
 }
 ```
 
-In source mode, Qyro Engine reads the local JSON. During `qyro build`, the CLI excludes the plaintext file, encrypts the complete object with AES-256-GCM, and stores `.velto/secrets.enc` inside `resources.pak`. The compiled runtime module lets the Engine authenticate, decrypt, and merge it in memory. Application code reads the values through `context.app_settings` or `self.app_settings` in both modes.
+In source mode, Velto Engine reads the local JSON. During `Velto build`, the CLI excludes the plaintext file, encrypts the complete object with AES-256-GCM, and stores `.velto/secrets.enc` inside `resources.pak`. The compiled runtime module lets the Engine authenticate, decrypt, and merge it in memory. Application code reads the values through `context.app_settings` or `self.app_settings` in both modes.
 
 The Engine uses a shallow merge, so repeat a complete nested object in secrets or prefer flat keys. The CLI uses a deep merge. Do not add a `sign` object or legacy flat signing keys here: the build rejects them instead of embedding signing credentials in the client. Signing and notarization values belong exclusively in `settings/sign.json`.
 
@@ -522,6 +522,6 @@ Test the artifact, then enable one optimization at a time. Switch to `onefile` o
 - The configured framework is installed in the Python environment running Velto CLI.
 - Each target was built on its native operating system.
 - Exclusions were tested against network/TLS, image formats, styles, printing, multimedia, and every optional feature the app uses.
-- `qyro sign --check` and `qyro bundle --check` succeed where applicable.
+- `Velto sign --check` and `Velto bundle --check` succeed where applicable.
 - The final artifact starts on a clean machine.
 - `settings/secrets.json` and `settings/sign.json` are untracked, and no signing credentials are present in the runtime secrets payload.
