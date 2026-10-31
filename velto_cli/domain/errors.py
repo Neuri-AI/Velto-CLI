@@ -42,9 +42,9 @@ class ProjectAlreadyExistsError(QyroError):
 class NotAProjectError(QyroError):
     def __init__(self, current_dir: str):
         super().__init__(
-            f"Current directory '{current_dir}' is not a valid Qyro project.",
+            f"Current directory '{current_dir}' is not a valid Velto project.",
             hint=(
-                "Run 'qyro init' first or navigate to a project containing a valid qyro project"
+                "Run 'velto init' first or navigate to a project containing a valid velto project"
             ),
         )
         self.current_dir = current_dir
@@ -54,7 +54,7 @@ class FrozenAppNotFoundError(QyroError):
     def __init__(self, expected_path: str = ""):
         super().__init__(
             "Could not find the frozen application.",
-            hint="Run 'qyro freeze' first.",
+            hint="Run 'velto build' first.",
         )
         self.expected_path = expected_path
 
@@ -63,7 +63,7 @@ class InstallerNotFoundError(QyroError):
     def __init__(self, expected_path: str = ""):
         super().__init__(
             "Could not find the installer.",
-            hint="Run 'qyro installer' first.",
+            hint="Run 'velto release' first.",
         )
         self.expected_path = expected_path
 
@@ -116,7 +116,7 @@ class UnsupportedDistributionError(QyroError):
         super().__init__(
             message,
             hint=(
-                "Run 'qyro buildvm' followed by 'qyro runvm' to start a "
+                "Run 'velto buildvm' followed by 'velto runvm' to start a "
                 "Docker VM using a supported distribution."
             ),
         )
@@ -208,7 +208,7 @@ class GpgKeyNotConfiguredError(QyroError):
         super().__init__(
             "GPG key for code signing is not configured.",
             hint=(
-                "Run 'qyro gengpgkey' or configure 'gpg_key' and "
+                "Run 'velto gengpgkey' or configure 'gpg_key' and "
                 "'gpg_pass' in the project settings."
             ),
         )
@@ -218,7 +218,7 @@ class CredentialsNotConfiguredError(QyroError):
     def __init__(self, key: str):
         super().__init__(
             f"Required credential '{key}' is not configured.",
-            hint="Run 'qyro register' or 'qyro login'.",
+            hint="Run 'velto register' or 'velto login'.",
         )
         self.key = key
 
