@@ -1,8 +1,8 @@
 
 [project]
-name = "qyro-cli"
+name = "velto-cli"
 version = "0.1.0"
-description = "The official developer CLI and project orchestrator for the Qyro ecosystem. Scaffold, develop, build, package, and sign cross-platform Python applications."
+description = "The official developer CLI and project orchestrator for the Velto ecosystem. Scaffold, develop, build, package, and sign cross-platform Python applications."
 authors = [{ name = "Neuri", email = "ppg@neuri.ai" }]
 maintainers = [
     { name = "Luis Alfredo De Los Reyes", email = "luisalfredoreyes98@gmail.com" },
@@ -41,7 +41,7 @@ mobile = [
 ]
 
 [project.scripts]
-qyro = "qyro_cli.cmdline.app:main"
+velto = "qyro_cli.cmdline.app:main"
 
 [tool.poetry]
 package-mode = true
