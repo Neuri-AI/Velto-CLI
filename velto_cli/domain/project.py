@@ -160,6 +160,10 @@ class ProjectConfig:
             # ``${binding}`` for the Qt binary exclusion.
             "binding": self.binding.value,
             "python_bindings": self.binding.value,
+            "binding_dependencies": (
+                f'    "{self.binding.dependency_spec}",\n'
+                if self.binding != Binding.TKINTER else ""
+            ),
             "framework": self.binding.dependency_spec,
             # for qyro_runtime info
             "addons": [addon.value for addon in self.addons],
