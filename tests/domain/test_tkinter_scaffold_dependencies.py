@@ -29,7 +29,7 @@ def test_other_bindings_keep_installable_dependencies():
 
 
 def test_old_tkinter_dependency_line_is_removable():
-    old = 'dependencies = [\\n    "Tkinter",\\n    "requests"\\n]\\n'
-    cleaned = re.sub(r'(?im)^[ \\t]*"tkinter",?[ \\t]*\\r?\\n', "", old)
+    old = 'dependencies = [\n    "Tkinter",\n    "requests"\n]\n'
+    cleaned = re.sub(r'(?im)^[ \t]*"tkinter",?[ \t]*\r?\n', "", old)
     assert '"Tkinter"' not in cleaned
     assert '"requests"' in cleaned
