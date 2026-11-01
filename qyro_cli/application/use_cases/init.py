@@ -267,7 +267,7 @@ class InitProjectUseCase:
             if pyproject.is_file():
                 contents = pyproject.read_text(encoding="utf-8")
                 cleaned = re.sub(
-                    r'(?m)^[ \\t]*["\\\']Tkinter["\\\'],?[ \\t]*\\r?\\n',
+                    r'(?im)^[ \t]*"tkinter",?[ \t]*\r?\n',
                     "",
                     contents,
                 )
