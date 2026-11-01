@@ -4,7 +4,6 @@ Orchestrates project initialization following Clean Architecture.
 """
 
 from pathlib import Path
-import re
 
 from qyro_cli.application.ports import (
     FileSystemPort,
@@ -259,20 +258,6 @@ class InitProjectUseCase:
                 **config.as_base_settings(),
             },
         )
-
-        # Older or cached boilerplates may still list Tkinter as a PyPI package.
-        # It belongs to the interpreter's standard library, not to PyPI.
-        if config.binding == Binding.TKINTER:
-            pyproject = destination / "pyproject.toml"
-            if pyproject.is_file():
-                contents = pyproject.read_text(encoding="utf-8")
-                cleaned = re.sub(
-                    r'(?im)^[ \t]*"tkinter",?[ \t]*\r?\n',
-                    "",
-                    contents,
-                )
-                if cleaned != contents:
-                    pyproject.write_text(cleaned, encoding="utf-8")
 
         self.ui.info("Installing project dependencies...")
         self.dependencies.install(str(destination))
