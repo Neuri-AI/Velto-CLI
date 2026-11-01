@@ -259,6 +259,22 @@ class InitProjectUseCase:
         )
         self._persist_base_settings(destination, config)
 
+        # Tkinter is provided by Python/Tcl-Tk, not distributed on PyPI.
+        # Clean legacy or cached templates before any package resolver runs.
+        if config.binding == Binding.TKINTER:
+            pyproject = destination / "pyproject.toml"
+            if pyproject.is_file():
+                import re
+
+                original = pyproject.read_text(encoding="utf-8")
+                cleaned = re.sub(
+                    r'(?im)^[ \t]*"tkinter",?[ \t]*\r?\n',
+                    "",
+                    original,
+                )
+                if cleaned != original:
+                    pyproject.write_text(cleaned, encoding="utf-8")
+
         self.ui.info("Installing project dependencies...")
         self.dependencies.install(str(destination))
 
