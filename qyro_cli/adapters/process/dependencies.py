@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from qyro_cli.application.ports import ProcessRunnerPort
-from qyro_cli.domain.errors import PackageInstallationError
+from qyro_cli.domain.errors import QyroError
 
 
 @dataclass(frozen=True)
@@ -25,11 +25,12 @@ class DependencyInstaller:
         try:
             self._run(manager.lock_command, project_path)
             self._run(manager.install_command, project_path)
-        except PackageInstallationError:
+        except QyroError:
             raise
         except Exception as exc:
-            raise PackageInstallationError(
-                manager.executable
+            raise QyroError(
+                f"Dependency installation failed with {manager.executable}: {exc}",
+                hint="Review the command output above for the underlying error.",
             ) from exc
 
     def _resolve_manager(self) -> DependencyManager:
@@ -86,4 +87,7 @@ class DependencyInstaller:
         )
 
         if result != 0:
-            raise PackageInstallationError(command[0])
+            raise QyroError(
+                f"Dependency command failed (exit {result}): {' '.join(command)}",
+                hint="Review the dependency resolver output above.",
+            )
