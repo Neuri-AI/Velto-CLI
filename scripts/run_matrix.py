@@ -179,6 +179,19 @@ def run_command(
 
 
 def find_conda() -> str:
+    # conda.BAT passes package constraints through cmd.exe, where characters
+    # such as '<' and '>' are treated as shell redirections. Prefer the native
+    # conda.exe launcher so subprocess arguments are forwarded literally.
+    if os.name == "nt":
+        candidates = [os.environ.get("CONDA_EXE"), shutil.which("conda.exe")]
+        for candidate in candidates:
+            if candidate and Path(candidate).is_file() and Path(candidate).suffix.lower() == ".exe":
+                return str(Path(candidate).resolve())
+        raise RuntimeError(
+            "Conda's executable launcher (conda.exe) was not found. "
+            "The conda.BAT wrapper cannot safely receive pip version constraints."
+        )
+
     conda = shutil.which("conda")
 
     if not conda:
