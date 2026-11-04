@@ -112,10 +112,11 @@ class MobileToolchainFreezer:
         return parts[1]
 
     def _qt_android_wheels(self, request: MobileFreezeRequest) -> tuple[Path, Path]:
-        """Resolve matching Android wheels, downloading once into Velto's cache.
+        """Prefer commercial Qt wheels when licensed; otherwise use public wheels.
 
-        Explicit wheel paths are an advanced override; default workflow downloads
-        from Qt's public open-source archive into ~/.velto/mobile/.
+        qtpip is Qt's authority for validating commercial credentials. Simply
+        finding a Qt account configuration file is not proof of a valid license.
+        Explicit wheels bypass download and retain the caller's licensing choice.
         """
         arch = "aarch64"
         try:
@@ -126,45 +127,72 @@ class MobileToolchainFreezer:
                 "Install velto-cli[mobile-pyside6] first."
             ) from exc
 
-        cache = Path.home() / ".velto" / "mobile" / "pyside6" / "android" / arch / qt_version
+        root_cache = (
+            Path.home() / ".velto" / "mobile" / "pyside6"
+            / "android" / arch / qt_version
+        )
         override = (request.wheel_pyside, request.wheel_shiboken)
         if any(override) and not all(override):
             raise ValueError(
                 "Both --wheel-pyside and --wheel-shiboken must be supplied together."
             )
 
-        def discover() -> tuple[Path, Path] | None:
-            if all(override):
-                pair = (override[0], override[1])
-            else:
-                paths = list(cache.rglob("*.whl")) if cache.exists() else []
-                pyside = sorted(
-                    (p for p in paths if self._android_wheel_version(p, "PySide6", arch) == qt_version),
-                    key=str,
-                )
-                shiboken = sorted(
-                    (p for p in paths if self._android_wheel_version(p, "shiboken6", arch) == qt_version),
-                    key=str,
-                )
-                if not pyside or not shiboken:
-                    return None
-                pair = (pyside[-1], shiboken[-1])
+        def discover(directory: Path) -> tuple[Path, Path] | None:
+            paths = list(directory.glob("*.whl")) if directory.exists() else []
+            pyside = sorted(
+                (p for p in paths if self._android_wheel_version(
+                    p, "PySide6", arch
+                ) == qt_version),
+                key=str,
+            )
+            shiboken = sorted(
+                (p for p in paths if self._android_wheel_version(
+                    p, "shiboken6", arch
+                ) == qt_version),
+                key=str,
+            )
+            return (pyside[-1], shiboken[-1]) if pyside and shiboken else None
+
+        if all(override):
+            pair = (override[0], override[1])
             for candidate, package in zip(pair, ("PySide6", "shiboken6")):
                 if candidate is None or not candidate.is_file():
                     raise ValueError(f"Android wheel does not exist: {candidate}")
-                actual = self._android_wheel_version(candidate, package, arch)
-                if actual != qt_version:
+                if self._android_wheel_version(candidate, package, arch) != qt_version:
                     raise ValueError(
-                        f"Android {package} wheel must match installed PySide6 "
-                        f"{qt_version} and target {arch}: {candidate}"
+                        f"Android {package} wheel must match installed "
+                        f"PySide6 {qt_version} and target {arch}: {candidate}"
                     )
             return pair
 
-        found = discover()
-        if found is not None:
-            return found
+        commercial_cache = root_cache / "commercial"
+        public_cache = root_cache / "public"
 
-        return QtAndroidWheelArchive().resolve(qt_version, arch, cache)
+        # Qt's license provider performs the actual authorization check. A
+        # locally installed qtpip alone does not establish a commercial license.
+        qtpip = shutil.which("qtpip")
+        if qtpip:
+            cached = discover(commercial_cache)
+            if cached:
+                return cached
+            commercial_cache.mkdir(parents=True, exist_ok=True)
+            status = self._runner.run(
+                [qtpip, "download", "PySide6", "--android", "--arch", arch],
+                cwd=str(commercial_cache),
+            )
+            if status == 0:
+                downloaded = discover(commercial_cache)
+                if downloaded is not None:
+                    return downloaded
+                raise RuntimeError(
+                    "qtpip succeeded but did not supply matching Android "
+                    f"PySide6/Shiboken6 wheels for Qt {qt_version} ({arch}); "
+                    "refusing to silently switch the license edition."
+                )
+            # No valid commercial credentials (or inaccessible commercial
+            # repository): fall back to the freely distributed Qt wheels.
+            # This does not imply that commercial rights were verified.
+        return QtAndroidWheelArchive().resolve(qt_version, arch, public_cache)
 
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
         root = request.project_root
