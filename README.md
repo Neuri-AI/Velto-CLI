@@ -155,6 +155,12 @@ Android deploy tool); Kivy iOS uses `kivy-ios`; PySide6 iOS uses the deploy
 command bundled with PySide6. iOS compilation needs macOS and Xcode. On
 Windows, run Android toolchains inside WSL2.
 
+The PySide6 Android extra includes deployment-script dependencies:
+`jinja2`, `pkginfo`, and `tqdm`. For an existing environment that
+predates these extras, install the requirements file bundled with your
+local PySide6 installation, then rerun `velto build --target android
+--init-spec`.
+
 These optional Python packages do **not** install the Android SDK/NDK,
 Xcode, signing credentials, target-architecture Qt wheels, or a mobile
 Cinnamon/Rust extension. Mobile runtime and artifact validation remains
