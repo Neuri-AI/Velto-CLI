@@ -25,6 +25,8 @@ class FreezeMobileUseCase:
         project_root: Path | None = None,
         init_only: bool = False,
         debug: bool = False,
+        wheel_pyside: str | None = None,
+        wheel_shiboken: str | None = None,
     ) -> MobileBuildArtifact | None:
         root = (project_root or Path.cwd()).resolve()
         if not (root / "pyproject.toml").is_file():
@@ -47,10 +49,20 @@ class FreezeMobileUseCase:
             raise ValueError("Mobile entry_point must stay inside the project")
         if not init_only and not entry.is_file():
             raise FileNotFoundError(f"Mobile entry point not found: {entry}")
+        def resolve_wheel(value: str | None) -> Path | None:
+            if not value:
+                return None
+            candidate = (root / value).resolve()
+            if not candidate.is_file() or candidate.suffix != ".whl":
+                raise ValueError(f"Expected an existing Android wheel (.whl): {candidate}")
+            return candidate
+
         request = MobileFreezeRequest(
             project_root=root, target=target, framework=framework,
             app_name=str(app_name), version=str(version),
             entry_point=entry_point, debug=debug, init_only=init_only,
+            wheel_pyside=resolve_wheel(wheel_pyside),
+            wheel_shiboken=resolve_wheel(wheel_shiboken),
         )
         artifact = self._builder.freeze(request)
         if artifact is not None:
