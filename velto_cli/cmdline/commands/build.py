@@ -119,16 +119,17 @@ class BuildCommand:
                 if target_str == "android"
                 else MobileTarget.IOS
             )
-            if hasattr(c, "mobile_build_use_case"):
-                c.mobile_build_use_case.execute(
+            try:
+                c.freeze_mobile_use_case.execute(
                     target=target,
+                    project_root=Path.cwd(),
                     init_only=getattr(args, "init_spec", False),
-                    debug=getattr(args, "debug", False),
+                    debug=bool(getattr(args, "debug", False)),
                 )
-            else:
-                c.ui.error("Mobile build use case is not configured in this runtime.")
+                return 0
+            except Exception as exc:
+                c.ui.error(str(exc))
                 return 1
-            return 0
 
         # Determine profile from --profile or --target if user specifies platform OS
         profile_val = getattr(args, "profile", "release")
