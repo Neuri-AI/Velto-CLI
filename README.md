@@ -131,31 +131,34 @@ poetry add velto-cli
 
 ### Mobile toolchain installation
 
-Install the optional dependencies for the backend and target you intend to build:
+Mobile extras are grouped by renderer, not by destination. Install the
+backend you use, then select Android or iOS with `--target`.
 
 ```bash
-# Android / Kivy (Linux, macOS, or WSL2)
-pip install "velto-cli[mobile-kivy-android]"
+pip install "velto-cli[mobile-kivy]"
+# or
+pip install "velto-cli[mobile-pyside6]"
 
-# iOS / Kivy (macOS)
-pip install "velto-cli[mobile-kivy-ios]"
-
-# Android / PySide6 (Linux, macOS, or WSL2)
-pip install "velto-cli[mobile-pyside6-android]"
-
-# iOS / PySide6 (macOS)
-pip install "velto-cli[mobile-pyside6-ios]"
-
-# All applicable host-side mobile Python toolchains
+# Install the tools for both backends
 pip install "velto-cli[mobile]"
 ```
 
-The Qt deploy commands are provided by the **PySide6** distribution, not
-separate pip packages. Android requires SDK/NDK and a JDK; iOS requires
-full Xcode on macOS. Target-specific PySide6/Shiboken6 wheels and
-Cinnamon/Rust builds are still required. On Windows, run Android builds
-inside WSL2. Installing these extras does not automatically guarantee
-that a Velto project is compatible with Android or iOS.
+```bash
+velto build --target android --init-spec
+velto build --target android --debug
+velto build --target ios
+```
+
+The selected `framework` in `settings/base.json` determines whether Kivy
+or PySide6 is used. Android uses Buildozer (also used internally by the Qt
+Android deploy tool); Kivy iOS uses `kivy-ios`; PySide6 iOS uses the deploy
+command bundled with PySide6. iOS compilation needs macOS and Xcode. On
+Windows, run Android toolchains inside WSL2.
+
+These optional Python packages do **not** install the Android SDK/NDK,
+Xcode, signing credentials, target-architecture Qt wheels, or a mobile
+Cinnamon/Rust extension. Mobile runtime and artifact validation remains
+necessary before calling the resulting apps production-ready.
 
 
 ---
