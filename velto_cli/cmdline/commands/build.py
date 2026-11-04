@@ -97,6 +97,19 @@ class BuildCommand:
         )
 
         parser.add_argument(
+            "--wheel-pyside",
+            dest="wheel_pyside",
+            default=None,
+            help="Android target PySide6 wheel (.whl). Required when initializing the Qt Android spec.",
+        )
+        parser.add_argument(
+            "--wheel-shiboken",
+            dest="wheel_shiboken",
+            default=None,
+            help="Android target Shiboken6 wheel (.whl). Required when initializing the Qt Android spec.",
+        )
+
+        parser.add_argument(
             "--init-spec",
             dest="init_spec",
             action="store_true",
@@ -125,6 +138,8 @@ class BuildCommand:
                     project_root=Path.cwd(),
                     init_only=getattr(args, "init_spec", False),
                     debug=bool(getattr(args, "debug", False)),
+                    wheel_pyside=getattr(args, "wheel_pyside", None),
+                    wheel_shiboken=getattr(args, "wheel_shiboken", None),
                 )
                 return 0
             except Exception as exc:
