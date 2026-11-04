@@ -424,6 +424,14 @@ def install_project(
             log_file,
         )
 
+    # PSX markup compilation is provided by Velto Core, not Qyro Engine.
+    install_package(
+        conda,
+        environment,
+        "velto-core>=0.1.0,<0.2.0",
+        log_file,
+    )
+
     if cli_source:
         install_package(
             conda,
