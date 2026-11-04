@@ -264,6 +264,14 @@ class MobileToolchainFreezer:
             args.extend(["--init", "--name", request.app_name])
         else:
             args.extend(["--config-file", str(spec), "--force"])
+            # Qt's static scan does not see imports made inside PSX's native
+            # adapter. Explicit modules survive automatic spec regeneration.
+            # Retain the generated Java/Gradle project when Android fails,
+            # so missing classpath JARs can be inspected and diagnosed.
+            args.extend([
+                "--extra-modules", "Core,Gui,Widgets",
+                "--keep-deployment-files",
+            ])
         args.extend([
             "--wheel-pyside", str(wheel_pyside),
             "--wheel-shiboken", str(wheel_shiboken),
