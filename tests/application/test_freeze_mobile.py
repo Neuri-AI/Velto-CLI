@@ -151,7 +151,7 @@ def test_pyside_android_init_resolves_public_archive_wheels(project, monkeypatch
     )
     monkeypatch.setattr(
         "velto_cli.adapters.mobile.freezer.shutil.which",
-        lambda name: "/usr/bin/" + name,
+        lambda name: None if name == "qtpip" else "/usr/bin/" + name,
     )
     request = MobileFreezeRequest(
         project_root=project, target=MobileTarget.ANDROID,
@@ -161,7 +161,7 @@ def test_pyside_android_init_resolves_public_archive_wheels(project, monkeypatch
     assert MobileToolchainFreezer(runner).freeze(request) is None
     archive.resolve.assert_called_once_with(
         "6.12.0", "aarch64",
-        project / ".velto" / "mobile" / "pyside6" / "android" / "aarch64" / "6.12.0",
+        project / ".velto" / "mobile" / "pyside6" / "android" / "aarch64" / "6.12.0" / "public",
     )
     runner.run.assert_called_once()
     args = runner.run.call_args.args[0]
@@ -226,3 +226,73 @@ def test_mobile_use_case_passes_validated_qt_wheel_paths(project):
     request = builder.freeze.call_args.args[0]
     assert request.wheel_pyside == pyside
     assert request.wheel_shiboken == shiboken
+
+
+def test_pyside_prefers_licensed_qtpip_when_available(project, monkeypatch):
+    runner = Mock()
+    cache = (project / ".velto" / "mobile" / "pyside6"
+             / "android" / "aarch64" / "6.12.0" / "commercial")
+    def qtpip_succeeds(command, cwd):
+        if command[0] == "/usr/bin/qtpip":
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "PySide6-6.12.0-6.12.0-cp310-abi3-android_aarch64.whl").touch()
+            (cache / "shiboken6-6.12.0-6.12.0-cp310-abi3-android_aarch64.whl").touch()
+        return 0
+    runner.run.side_effect = qtpip_succeeds
+    archive = Mock()
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive", lambda: archive
+    )
+    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.Path.home", lambda: project)
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.distribution_version",
+        lambda name: "6.12.0",
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.shutil.which",
+        lambda name: "/usr/bin/" + name,
+    )
+    request = MobileFreezeRequest(
+        project_root=project, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="Demo",
+        version="1.0.0", init_only=True,
+    )
+    wheels = MobileToolchainFreezer(runner)._qt_android_wheels(request)
+    assert all(path.parent == cache for path in wheels)
+    runner.run.assert_called_once_with(
+        ["/usr/bin/qtpip", "download", "PySide6", "--android",
+         "--arch", "aarch64"], cwd=str(cache)
+    )
+    archive.resolve.assert_not_called()
+
+
+def test_pyside_falls_back_to_public_on_missing_commercial_license(project, monkeypatch):
+    runner = Mock()
+    runner.run.return_value = 1
+    archive = Mock()
+    expected = (project / "community-PySide6.whl",
+                project / "community-shiboken6.whl")
+    archive.resolve.return_value = expected
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive", lambda: archive
+    )
+    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.Path.home", lambda: project)
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.distribution_version",
+        lambda name: "6.12.0",
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.shutil.which",
+        lambda name: "/usr/bin/" + name,
+    )
+    request = MobileFreezeRequest(
+        project_root=project, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="Demo",
+        version="1.0.0", init_only=True,
+    )
+    assert MobileToolchainFreezer(runner)._qt_android_wheels(request) == expected
+    archive.resolve.assert_called_once_with(
+        "6.12.0", "aarch64",
+        project / ".velto" / "mobile" / "pyside6"
+        / "android" / "aarch64" / "6.12.0" / "public",
+    )
