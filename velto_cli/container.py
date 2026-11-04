@@ -126,7 +126,7 @@ class Container:
             ui=self.ui,
         )
 
-        self.mobile_builder = MobileToolchainFreezer(runner=self.subprocess_runner)
+        self.mobile_builder = MobileToolchainFreezer(runner=self.subprocess_runner, ui=self.ui)
         self.freeze_mobile_use_case = FreezeMobileUseCase(
             builder=self.mobile_builder, settings_repo=self.settings, ui=self.ui,
         )
