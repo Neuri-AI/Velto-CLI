@@ -5,12 +5,12 @@ on:
     branches: [main]
     paths:
       - "pyproject.toml"
-      - "qyro_cli/**"
+      - "velto_cli/**"
       - ".github/workflows/velto-wheel-smoke.yml"
   pull_request:
     paths:
       - "pyproject.toml"
-      - "qyro_cli/**"
+      - "velto_cli/**"
       - ".github/workflows/velto-wheel-smoke.yml"
   workflow_dispatch:
 
@@ -36,16 +36,16 @@ jobs:
           assert wheel.name.startswith("velto_cli-"), wheel.name
           with ZipFile(wheel) as archive:
               members = archive.namelist()
-              assert "qyro_cli/__init__.py" in members, members[:30]
-              assert "qyro_cli/cmdline/app.py" in members, members[:30]
+              assert "velto_cli/__init__.py" in members, members[:30]
+              assert "velto_cli/cmdline/app.py" in members, members[:30]
               entry_file, = (item for item in members if item.endswith(".dist-info/entry_points.txt"))
               parser = ConfigParser()
               parser.read_string(archive.read(entry_file).decode())
-              assert parser["console_scripts"]["velto"] == "qyro_cli.cmdline.app:main"
+              assert parser["console_scripts"]["velto"] == "velto_cli.cmdline.app:main"
           PY
       - name: Install wheel into an isolated environment
         run: |
           python -m venv .wheel-check
           .wheel-check/bin/python -m pip install --no-deps dist/*.whl
-          .wheel-check/bin/python -c "import qyro_cli; assert qyro_cli.__file__; print(qyro_cli.__file__)"
+          .wheel-check/bin/python -c "import velto_cli; assert velto_cli.__file__; print(velto_cli.__file__)"
           .wheel-check/bin/python -c "from importlib.metadata import distribution; d=distribution('velto-cli'); assert any(e.name=='velto' for e in d.entry_points)"
