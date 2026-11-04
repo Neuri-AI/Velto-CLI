@@ -1,5 +1,6 @@
 """Tests for the mobile freeze application boundary and toolchain adapter."""
 from pathlib import Path
+from zipfile import ZipFile
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -436,3 +437,64 @@ def test_pyside_android_build_keeps_modules_and_gradle_diagnostics(
     args = runner.run.call_args.args[0]
     assert args[args.index("--extra-modules") + 1] == "Core,Gui,Widgets"
     assert "--keep-deployment-files" in args
+
+
+def test_pyside_qt_android_automatically_repairs_missing_base_jar(
+    project, monkeypatch,
+):
+    """Regression: Gradle initially misses QtActivityBase but Velto resumes."""
+    (project / "pysidedeploy.spec").write_text("[qt]\\nmodules = \\n")
+    dist = (
+        project / ".buildozer" / "android" / "platform"
+        / "build-arm64-v8a" / "dists" / "AndroidAppQt"
+    )
+    libs = dist / "src" / "main" / "libs"
+    libs.mkdir(parents=True)
+    (libs / "Qt6AndroidBindings.jar").touch()
+    (dist / "gradlew").write_text("#!/bin/sh\\n")
+    (dist / "build.gradle").write_text(
+        "dependencies {\\n"
+        "  implementation files('src/main/libs/Qt6AndroidBindings.jar')\\n"
+        "}\\n"
+    )
+    source = project / "deployment" / "jar" / "PySide6" / "jar" / "Qt6Android.jar"
+    source.parent.mkdir(parents=True)
+    with ZipFile(source, "w") as archive:
+        archive.writestr("org/qtproject/qt/android/QtActivityBase.class", b"class")
+    wheels = (
+        project / "PySide6-6.12.0-cp310-abi3-android_aarch64.whl",
+        project / "shiboken6-6.12.0-cp310-abi3-android_aarch64.whl",
+    )
+    for wheel in wheels:
+        wheel.touch()
+    runner = Mock()
+    apk = dist / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+    def invoke(command, cwd):
+        if command[0].endswith("pyside6-android-deploy"):
+            return 1
+        assert command == [str(dist / "gradlew"), "assembleDebug"]
+        apk.parent.mkdir(parents=True)
+        apk.write_bytes(b"apk")
+        return 0
+    runner.run.side_effect = invoke
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.shutil.which",
+        lambda name: "/usr/bin/" + name,
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.distribution_version",
+        lambda name: "6.12.0",
+    )
+    request = MobileFreezeRequest(
+        project_root=project, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="AndroidAppQt",
+        version="1.0.0", debug=True,
+        wheel_pyside=wheels[0], wheel_shiboken=wheels[1],
+    )
+    artifact = MobileToolchainFreezer(runner).freeze(request)
+    assert artifact.path == apk
+    assert (libs / "Qt6Android.jar").read_bytes() == source.read_bytes()
+    content = (dist / "build.gradle").read_text()
+    assert "implementation files('src/main/libs/Qt6Android.jar')" in content
+    assert "Bindings.jar')\\n    implementation files" in content
+    assert runner.run.call_count == 2
