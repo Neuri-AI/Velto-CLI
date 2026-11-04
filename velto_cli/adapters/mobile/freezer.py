@@ -169,9 +169,15 @@ class MobileToolchainFreezer:
         found = discover()
         if found is None:
             raise RuntimeError(
-                f"qtpip did not produce matching PySide6/shiboken6 Android "
-                f"{arch} wheels for installed PySide6 {qt_version}. "
-                "Check available Qt Android distributions and qtpip output."
+                f"PySide6/shiboken6 Android {arch} wheels for Qt {qt_version} "
+                "could not be downloaded. qtpip uses Qt commercial credentials; "
+                "its 'Commercial License NOT found' error means this download "
+                "route requires a configured commercial license. An open-source "
+                "alternative is to build compatible Android wheels from Qt for "
+                "Python source (see the official Android cross-compilation guide), "
+                "then supply both wheels using --wheel-pyside and "
+                "--wheel-shiboken. Velto cannot silently bypass Qt licensing "
+                "or build these wheels without the Android Qt toolchain."
             )
         return found
 
