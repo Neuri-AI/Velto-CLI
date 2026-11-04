@@ -38,32 +38,25 @@ desktop = [
     "Pillow>=13.0; python_version >= '3.11'"
 ]
 
-# Mobile toolchains are host-side build dependencies, not packages to bundle
-# into the resulting Android/iOS app. SDK/NDK, Xcode, and target wheels are
-# installed and validated separately by their toolchains.
-mobile-kivy-android = [
+# Mobile build dependencies are grouped by UI framework. The requested
+# platform is selected separately with 'velto build --target android|ios'.
+# Native SDKs, Xcode, and target-compatible Rust/Python wheels are provisioned
+# by the toolchains and are not installed through pip.
+mobile-kivy = [
     "buildozer>=1.6.0,<2.0.0; sys_platform != 'win32'",
-]
-
-mobile-kivy-ios = [
     "kivy-ios>=1.3.0; sys_platform == 'darwin'",
 ]
 
-mobile-pyside6-android = [
-    "PySide6>=6.12.0,<7.0.0; sys_platform != 'win32'",
+mobile-pyside6 = [
+    "PySide6>=6.12.0,<7.0.0",
     "buildozer>=1.6.0,<2.0.0; sys_platform != 'win32'",
 ]
 
-mobile-pyside6-ios = [
-    "PySide6>=6.12.0,<7.0.0; sys_platform == 'darwin'",
-]
-
-# Convenience extra for a Unix build host. The platform markers prevent
-# installing iOS-specific tools on Linux and all mobile toolchains on Windows.
+# Convenience extra: installs both backends' applicable host-side tools.
 mobile = [
     "buildozer>=1.6.0,<2.0.0; sys_platform != 'win32'",
     "kivy-ios>=1.3.0; sys_platform == 'darwin'",
-    "PySide6>=6.12.0,<7.0.0; sys_platform != 'win32'",
+    "PySide6>=6.12.0,<7.0.0",
 ]
 
 [project.scripts]
