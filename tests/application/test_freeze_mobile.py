@@ -153,6 +153,7 @@ def test_pyside_android_init_downloads_wheels_automatically(project, monkeypatch
     adapter = MobileToolchainFreezer(runner)
     assert adapter.freeze(request) is None
     assert runner.run.call_count == 2
+    assert runner.run.call_args_list[0].kwargs["cwd"].startswith(str(project / ".velto" / "mobile"))
     assert runner.run.call_args_list[0].args[0] == [
         "/usr/bin/qtpip", "download", "PySide6", "--android", "--arch", "aarch64"
     ]
