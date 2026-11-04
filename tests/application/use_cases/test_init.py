@@ -180,7 +180,6 @@ class TestInitProjectUseCase:
         fs.current_user.return_value = "John Doe"
         configure_common_answers(ui)
         ui.ask_multi_choice.return_value = [
-            "Pydux (Redux-style State Management)",
             "Sentry (Crash Reporting Integration)",
         ]
 
@@ -191,7 +190,7 @@ class TestInitProjectUseCase:
 
         assert variables["framework"] == "PySide6"
         assert variables["version"] == "1.0.0"
-        assert variables["addons"] == ["pydux", "sentry-sdk"]
+        assert variables["addons"] == ["sentry-sdk"]
 
     def test_execute_configures_ios_bundle_identifier(self, tmp_path):
         use_case, ui, fs, _dependencies, templates, _settings = make_use_case()
@@ -215,7 +214,7 @@ class TestInitProjectUseCase:
 
         assert summary["Mac bundle identifier"] == "com.john.myapp"
 
-    def test_execute_limits_mobile_addons_to_pydux(self, tmp_path):
+    def test_execute_limits_mobile_addons_to_requests(self, tmp_path):
         use_case, ui, fs, _dependencies, templates, _settings = make_use_case()
 
         templates.resolve_template.return_value = Path("/templates/pyside6")
@@ -228,7 +227,7 @@ class TestInitProjectUseCase:
             "John Doe",
         ]
         ui.ask_multi_choice.return_value = [
-            "Pydux (Redux-style State Management)",
+            "Requests (HTTP Library)",
         ]
         ui.confirm.return_value = True
 
@@ -237,7 +236,7 @@ class TestInitProjectUseCase:
         selected_options = ui.ask_multi_choice.call_args.args[1]
 
         assert selected_options == [
-            "Pydux (Redux-style State Management)"
+            "Requests (HTTP Library)"
         ]
 
         templates.resolve_template.assert_called_once_with(
@@ -277,7 +276,7 @@ class TestInitProjectUseCase:
             app_name="My App",
             app_version="2.0.0",
             author="Jane",
-            addons=["pydux", "requests"],
+            addons=["requests"],
             confirm=True,
         )
 
@@ -298,7 +297,7 @@ class TestInitProjectUseCase:
         assert variables["app_name"] == "My App"
         assert variables["version"] == "2.0.0"
         assert variables["author"] == "Jane"
-        assert variables["addons"] == ["pydux", "requests"]
+        assert variables["addons"] == ["requests"]
         dependencies.install.assert_called_once_with(str(tmp_path.resolve()))
 
     def test_execute_non_interactive_apple_silicon_bundle_id(self, tmp_path):

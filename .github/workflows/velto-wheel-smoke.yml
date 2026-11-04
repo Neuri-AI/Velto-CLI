@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "pyproject.toml"
+      - "poetry.lock"
       - "velto_cli/**"
       - ".github/workflows/velto-wheel-smoke.yml"
   pull_request:
     paths:
       - "pyproject.toml"
+      - "poetry.lock"
       - "velto_cli/**"
       - ".github/workflows/velto-wheel-smoke.yml"
   workflow_dispatch:
@@ -46,6 +48,8 @@ jobs:
       - name: Install wheel into an isolated environment
         run: |
           python -m venv .wheel-check
-          .wheel-check/bin/python -m pip install --no-deps dist/*.whl
+          .wheel-check/bin/python -m pip install dist/*.whl
+          .wheel-check/bin/python -m pip check
           .wheel-check/bin/python -c "import velto_cli; assert list(velto_cli.__path__); print(list(velto_cli.__path__))"
           .wheel-check/bin/python -c "from importlib.metadata import distribution; d=distribution('velto-cli'); assert any(e.name=='velto' for e in d.entry_points)"
+          .wheel-check/bin/python -c "from importlib.metadata import packages_distributions; assert 'velto-core' in packages_distributions()['psx']; import qyro; import psx.markup.transform"

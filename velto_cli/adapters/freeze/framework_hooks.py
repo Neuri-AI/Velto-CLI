@@ -1,9 +1,9 @@
 
 """
-qyro.adapters.freeze.framework_hooks
-Framework-specific resolution hooks for Qyro's Freeze system.
+velto_cli.adapters.freeze.framework_hooks
+Framework-specific resolution hooks for Velto's Freeze system.
 Handles PyQt5, PyQt6, PySide2, PySide6, Kivy, Tkinter hidden imports and resource data,
-integrating with Qyro's domain Binding and Project entities.
+integrating with Velto's domain Binding and Project entities.
 """
 
 from pathlib import Path
@@ -32,11 +32,14 @@ class FrameworkHookResolver(FrameworkHookResolverPort):
         project_root: Path,
         manifest: FreezeManifest,
     ) -> List[str]:
-        # FrameworkFactory imports adapters dynamically. Include the whole
-        # adapter package so explicit selection, auto-detection and the
-        # headless fallback work in frozen apps. Competing toolkit packages
-        # are still excluded below; adapters remain lazy at runtime.
-        args: List[str] = ["--collect-submodules", "qyro.adapters.frameworks"]
+        # Qyro owns runtime services and framework adapters, while its PSX
+        # integration loads renderers, markup helpers and layout backends
+        # lazily. Collect both package roots instead of a private Qyro
+        # subpackage, whose internal layout can evolve independently.
+        args: List[str] = [
+            "--collect-submodules", "qyro",
+            "--collect-submodules", "psx",
+        ]
 
         binding = Binding.parse(manifest.binding)
 
@@ -184,7 +187,7 @@ class FrameworkHookResolver(FrameworkHookResolverPort):
         for item in sorted(collected_kv):
             args.extend(["--add-data", item])
 
-        # Attach Qyro's bundled Kivy runtime hook to set custom window icon
+        # Attach Velto's bundled Kivy runtime hook to set a custom window icon
         kivy_rthook = Path(__file__).parent / "hooks" / "rthook_kivy_icon.py"
         if kivy_rthook.exists():
             args.extend(["--runtime-hook", kivy_rthook.as_posix()])
