@@ -161,27 +161,40 @@ predates these extras, install the requirements file bundled with your
 local PySide6 installation, then rerun `velto build --target android
 --init-spec`.
 
-For PySide6 Android, Velto fetches **open-source Android wheels directly
-from the official public Qt for Python download archive**:
+For PySide6 Android, Velto automatically selects the Qt wheel source:
 
-- https://download.qt.io/official_releases/QtForPython/pyside6/
-- https://download.qt.io/official_releases/QtForPython/shiboken6/
+1. **Commercial Qt:** When `qtpip` is installed, Velto attempts Qt's
+   commercial download. Qt checks the user's configured commercial license.
+   Successfully obtained wheels take priority.
+2. **Open-source Qt:** Without `qtpip`, or if the commercial download is
+   rejected, Velto downloads matching wheels from the public Qt archive.
 
-It matches the installed PySide6 version and Android architecture, validates
-the wheel ZIP archives, and caches them in `~/.velto/mobile/`. A normal
-Android build no longer needs `qtpip`, commercial Qt credentials, or
-manual wheel paths.
+Commercial and public artifacts use separate directories below
+`~/.velto/mobile/pyside6/android/`, grouped by architecture and Qt version.
 
 ```bash
+# Normal open-source installation
+pip install "velto-cli[mobile-pyside6]"
+
+# Opt in to Qt's commercial tooling (valid Qt license required)
+pip install "velto-cli[mobile-pyside6-commercial]"
+
+# Identical application-facing commands for both editions
 velto build --target android --init-spec
 velto build --target android --debug
 ```
 
-Developers can still supply `--wheel-pyside` and `--wheel-shiboken`
-as advanced overrides for locally cross-compiled wheels. If Qt does not
-publish matching open-source wheels for a version/architecture, the build
-stops with a specific diagnostic instead of silently switching to commercial
-downloads.
+The public repositories are
+`https://download.qt.io/official_releases/QtForPython/pyside6/` and
+`https://download.qt.io/official_releases/QtForPython/shiboken6/`.
+If the matching public wheels are unavailable, the build fails explicitly.
+You can also supply local wheels using `--wheel-pyside` and
+`--wheel-shiboken` as advanced overrides.
+
+**Licensing:** An installed `qtpip` executable does not itself establish a
+valid commercial license. Qt controls authorization, and a commercial project
+must follow the applicable Qt licensing terms. Do not treat public-wheel
+fallback as permission to mix incompatible commercial/open-source licensing.
 
 These optional Python packages do **not** install the Android SDK/NDK,
 Xcode, signing credentials, target-architecture Qt wheels, or a mobile
