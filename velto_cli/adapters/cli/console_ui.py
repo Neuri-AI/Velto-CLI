@@ -221,6 +221,13 @@ class RichConsoleUI:
             f"[#fdba74]⏳ {message}[/#fdba74]"
         )
 
+    def status(self, message: str):
+        """Display a live spinner for synchronous external operations."""
+        return self._console.status(
+            f"[#fdba74]{message}[/#fdba74]",
+            spinner="dots",
+        )
+
     def error(self, message: str) -> None:
         self._print(
             f"\n💔 [bold red]Error:[/bold red] {message}"
