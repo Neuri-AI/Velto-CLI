@@ -247,6 +247,16 @@ class MobileToolchainFreezer:
                 "--init-spec' first."
             )
 
+        # Buildozer fails during preflight without javac, but the Qt wrapper
+        # can swallow that failure and report a successful exit status.
+        # Diagnose the missing host dependency before any downloads/builds.
+        if not request.init_only and shutil.which("javac") is None:
+            raise RuntimeError(
+                "Android build requires a JDK with 'javac' on PATH. "
+                "On Arch Linux install jdk17-openjdk and verify 'javac -version'; "
+                "configure JAVA_HOME/PATH if Java is already installed."
+            )
+
         wheel_pyside, wheel_shiboken = self._qt_android_wheels(request)
         command = self._command("pyside6-android-deploy")
         args = [command]
@@ -266,7 +276,15 @@ class MobileToolchainFreezer:
                 )
             return None
 
-        artifact = self._latest(root, (".apk", ".aab"))
+        try:
+            artifact = self._latest(root, (".apk", ".aab"))
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "PySide6 Android deployment returned without an APK/AAB. "
+                "The Qt deployment wrapper may have swallowed a Buildozer error. "
+                "Inspect the preceding toolchain output for its first failure "
+                "(e.g. missing javac, SDK, or NDK)."
+            ) from exc
         return MobileBuildArtifact(artifact, request.target, request.framework,
                                    artifact.suffix.lstrip("."))
 
