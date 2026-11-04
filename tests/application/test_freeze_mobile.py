@@ -296,3 +296,41 @@ def test_pyside_falls_back_to_public_on_missing_commercial_license(project, monk
         project / ".velto" / "mobile" / "pyside6"
         / "android" / "aarch64" / "6.12.0" / "public",
     )
+
+
+
+def test_qtpip_zero_exit_without_wheels_uses_public_archive(project, monkeypatch):
+    """qtpip can exit 0 after printing 'Commercial License NOT found'."""
+    runner = Mock()
+    runner.run.return_value = 0  # Qt commercial authentication has still failed
+    archive = Mock()
+    pyside = project / "public-PySide6.whl"
+    shiboken = project / "public-shiboken6.whl"
+    archive.resolve.return_value = (pyside, shiboken)
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive",
+        lambda: archive,
+    )
+    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.Path.home", lambda: project)
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.distribution_version",
+        lambda name: "6.12.0",
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.shutil.which",
+        lambda name: "/usr/bin/" + name,
+    )
+    request = MobileFreezeRequest(
+        project_root=project, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="Demo",
+        version="1.0.0", init_only=True,
+    )
+    assert MobileToolchainFreezer(runner)._qt_android_wheels(request) == (
+        pyside, shiboken
+    )
+    runner.run.assert_called_once()
+    archive.resolve.assert_called_once_with(
+        "6.12.0", "aarch64",
+        project / ".velto" / "mobile" / "pyside6" / "android"
+        / "aarch64" / "6.12.0" / "public",
+    )
