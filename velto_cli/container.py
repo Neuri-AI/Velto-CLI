@@ -43,7 +43,7 @@ from velto_cli.application.guards import ProjectGuards
 
 
 TEMPLATE_ORGANIZATION = "Neuri-AI"
-TEMPLATE_CACHE_DIR = Path.home() / ".qyro" / "templates"
+TEMPLATE_CACHE_DIR = Path.home() / ".velto" / "templates"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 
