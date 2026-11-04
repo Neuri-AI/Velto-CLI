@@ -6,19 +6,36 @@ Native dependencies (including Cinnamon) still require target-compatible builds.
 import re
 import shutil
 import sys
+from contextlib import nullcontext
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
 
 from velto_cli.adapters.mobile.qt_android_archive import QtAndroidWheelArchive
-from velto_cli.application.ports import ProcessRunnerPort
+from velto_cli.application.ports import ProcessRunnerPort, UserInteractionPort
 from velto_cli.domain.mobile import (
     MobileBuildArtifact, MobileFramework, MobileFreezeRequest, MobileTarget,
 )
 
 
 class MobileToolchainFreezer:
-    def __init__(self, runner: ProcessRunnerPort) -> None:
+    def __init__(
+        self, runner: ProcessRunnerPort, ui: UserInteractionPort | None = None
+    ) -> None:
         self._runner = runner
+        self._ui = ui
+
+    def _status(self, message: str):
+        if self._ui is None:
+            return nullcontext()
+        return self._ui.status(message)
+
+    def _notice(self, message: str) -> None:
+        if self._ui is not None:
+            self._ui.info(message)
+
+    def _warning(self, message: str) -> None:
+        if self._ui is not None:
+            self._ui.warning(message)
 
     @staticmethod
     def _command(name: str) -> str:
@@ -174,22 +191,47 @@ class MobileToolchainFreezer:
         if qtpip:
             cached = discover(commercial_cache)
             if cached:
+                self._notice(f"Using cached commercial Qt Android wheels ({arch}).")
                 return cached
             commercial_cache.mkdir(parents=True, exist_ok=True)
-            status = self._runner.run(
-                [qtpip, "download", "PySide6", "--android", "--arch", arch],
-                cwd=str(commercial_cache),
-            )
-            # Some qtpip versions report a successful exit code even when
-            # their license check prints "Commercial License NOT found".
-            # The actual output artifacts are therefore the success signal.
+            # qtpip prints '[ERROR] Commercial License NOT found' even when
+            # its process exits successfully. Capture and classify its output
+            # instead of letting those internal log levels mislead the user.
+            with self._status("Checking commercial Qt Android wheels..."):
+                status, output = self._runner.run_capture(
+                    [qtpip, "download", "PySide6", "--android", "--arch", arch],
+                    cwd=str(commercial_cache),
+                )
             downloaded = discover(commercial_cache)
             if downloaded is not None:
+                self._notice(f"Using commercial Qt Android wheels ({arch}).")
                 return downloaded
-            # No complete commercial wheel pair: use the public release.
-            # A genuine commercial entitlement is never inferred from the
-            # presence of the qtpip executable or its exit status.
-        return QtAndroidWheelArchive().resolve(qt_version, arch, public_cache)
+            license_missing = (
+                "commercial license not found" in output.lower()
+                or "no commercial license found" in output.lower()
+            )
+            if license_missing:
+                self._warning(
+                    "Qt Commercial license not available; switching to the "
+                    "public Qt for Python Android repository."
+                )
+            else:
+                self._warning(
+                    f"Qt commercial download produced no matching wheels "
+                    f"(exit {status}); trying the public Qt archive."
+                )
+        else:
+            self._notice("No commercial Qt downloader found; using the public Qt archive.")
+
+        self._notice(
+            f"Resolving public PySide6/Shiboken6 {qt_version} Android {arch} wheels..."
+        )
+        with self._status("Downloading/verifying public Qt Android wheels..."):
+            pair = QtAndroidWheelArchive().resolve(
+                qt_version, arch, public_cache
+            )
+        self._notice("Public Qt Android wheels ready.")
+        return pair
 
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
         root = request.project_root
