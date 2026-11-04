@@ -443,7 +443,7 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     project, monkeypatch,
 ):
     """Regression: Gradle initially misses QtActivityBase but Velto resumes."""
-    (project / "pysidedeploy.spec").write_text("[qt]\\nmodules = \\n")
+    (project / "pysidedeploy.spec").write_text("[qt]\nmodules = \n")
     dist = (
         project / ".buildozer" / "android" / "platform"
         / "build-arm64-v8a" / "dists" / "AndroidAppQt"
@@ -451,11 +451,11 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     libs = dist / "src" / "main" / "libs"
     libs.mkdir(parents=True)
     (libs / "Qt6AndroidBindings.jar").touch()
-    (dist / "gradlew").write_text("#!/bin/sh\\n")
+    (dist / "gradlew").write_text("#!/bin/sh\n")
     (dist / "build.gradle").write_text(
-        "dependencies {\\n"
-        "  implementation files('src/main/libs/Qt6AndroidBindings.jar')\\n"
-        "}\\n"
+        "dependencies {\n"
+        "  implementation files('src/main/libs/Qt6AndroidBindings.jar')\n"
+        "}\n"
     )
     source = project / "deployment" / "jar" / "PySide6" / "jar" / "Qt6Android.jar"
     source.parent.mkdir(parents=True)
@@ -496,5 +496,5 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     assert (libs / "Qt6Android.jar").read_bytes() == source.read_bytes()
     content = (dist / "build.gradle").read_text()
     assert "implementation files('src/main/libs/Qt6Android.jar')" in content
-    assert "Bindings.jar')\\n    implementation files" in content
+    assert "Bindings.jar')\n    implementation files" in content
     assert runner.run.call_count == 2
