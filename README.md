@@ -163,7 +163,7 @@ local PySide6 installation, then rerun `velto build --target android
 
 For PySide6 Android, Velto now resolves the matching PySide6/Shiboken6
 Android wheels automatically, reusing a version- and architecture-specific
-cache under `~/.cache/velto/mobile/`. When the wheels are missing, the adapter
+cache under `~/.velto/mobile/`. When the wheels are missing, the adapter
 runs Qt's documented `qtpip download PySide6 --android --arch aarch64`
 command (the `mobile-pyside6` extra now installs `qtpip`; Qt account/license setup may still be necessary) and validates both
 downloaded wheel filenames before invoking the Android deployer.
