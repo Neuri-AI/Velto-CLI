@@ -161,24 +161,27 @@ predates these extras, install the requirements file bundled with your
 local PySide6 installation, then rerun `velto build --target android
 --init-spec`.
 
-For PySide6 Android, Velto now resolves the matching PySide6/Shiboken6
-Android wheels automatically, reusing a version- and architecture-specific
-cache under `~/.velto/mobile/`. When the wheels are missing, the adapter
-runs Qt's documented `qtpip download PySide6 --android --arch aarch64`
-command (the `mobile-pyside6` extra now installs `qtpip`; Qt account/license setup may still be necessary) and validates both
-downloaded wheel filenames before invoking the Android deployer.
-No wheel paths are needed in the normal workflow:
+For PySide6 Android, Velto fetches **open-source Android wheels directly
+from the official public Qt for Python download archive**:
+
+- https://download.qt.io/official_releases/QtForPython/pyside6/
+- https://download.qt.io/official_releases/QtForPython/shiboken6/
+
+It matches the installed PySide6 version and Android architecture, validates
+the wheel ZIP archives, and caches them in `~/.velto/mobile/`. A normal
+Android build no longer needs `qtpip`, commercial Qt credentials, or
+manual wheel paths.
 
 ```bash
 velto build --target android --init-spec
 velto build --target android --debug
 ```
 
-Advanced users can override selection using `--wheel-pyside` and
-`--wheel-shiboken` together. Qt's `qtpip` licensing/setup and upstream
-wheel availability are external prerequisites; Velto will fail with an
-actionable error if those cannot be satisfied rather than use incompatible
-desktop wheels.
+Developers can still supply `--wheel-pyside` and `--wheel-shiboken`
+as advanced overrides for locally cross-compiled wheels. If Qt does not
+publish matching open-source wheels for a version/architecture, the build
+stops with a specific diagnostic instead of silently switching to commercial
+downloads.
 
 These optional Python packages do **not** install the Android SDK/NDK,
 Xcode, signing credentials, target-architecture Qt wheels, or a mobile
