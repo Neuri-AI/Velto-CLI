@@ -272,7 +272,7 @@ class MobileToolchainFreezer:
                 continue
             shutil.copy2(source, libs / "Qt6Android.jar")
             gradle.write_text(
-                content.replace(binding_line, binding_line + "\\n    " + qt_line, 1),
+                content.replace(binding_line, binding_line + "\n    " + qt_line, 1),
                 encoding="utf-8",
             )
             self._warning(
