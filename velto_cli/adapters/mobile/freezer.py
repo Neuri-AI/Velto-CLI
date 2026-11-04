@@ -6,6 +6,7 @@ Native dependencies (including Cinnamon) still require target-compatible builds.
 import re
 import shutil
 import sys
+from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
 
 from velto_cli.application.ports import ProcessRunnerPort
@@ -98,6 +99,82 @@ class MobileToolchainFreezer:
         return MobileBuildArtifact(artifact, request.target, request.framework,
                                    artifact.suffix.lstrip("."))
 
+    @staticmethod
+    def _android_wheel_version(path: Path, package: str, arch: str) -> str | None:
+        """Read wheel filename metadata without importing host or Android binaries."""
+        # Example: PySide6-6.12.0-cp311-abi3-android_aarch64.whl
+        parts = path.name.split("-")
+        if len(parts) < 5 or parts[0].lower().replace("_", "") != package.lower().replace("_", ""):
+            return None
+        if not path.name.endswith(f"android_{arch}.whl"):
+            return None
+        return parts[1]
+
+    def _qt_android_wheels(self, request: MobileFreezeRequest) -> tuple[Path, Path]:
+        """Resolve matching Android wheels, downloading once into Velto's cache.
+
+        Explicit wheel paths are an advanced override; default workflow downloads
+        through Qt's qtpip utility into a version/architecture-specific directory.
+        """
+        arch = "aarch64"
+        try:
+            qt_version = distribution_version("PySide6")
+        except PackageNotFoundError as exc:
+            raise RuntimeError(
+                "PySide6 is not installed in this build environment. "
+                "Install velto-cli[mobile-pyside6] first."
+            ) from exc
+
+        cache = Path.home() / ".cache" / "velto" / "mobile" / "pyside6" / "android" / arch / qt_version
+        override = (request.wheel_pyside, request.wheel_shiboken)
+        if any(override) and not all(override):
+            raise ValueError(
+                "Both --wheel-pyside and --wheel-shiboken must be supplied together."
+            )
+
+        def discover() -> tuple[Path, Path] | None:
+            if all(override):
+                pair = (override[0], override[1])
+            else:
+                paths = list(cache.rglob("*.whl")) if cache.exists() else []
+                pyside = sorted(
+                    (p for p in paths if self._android_wheel_version(p, "PySide6", arch) == qt_version),
+                    key=str,
+                )
+                shiboken = sorted(
+                    (p for p in paths if self._android_wheel_version(p, "shiboken6", arch) == qt_version),
+                    key=str,
+                )
+                if not pyside or not shiboken:
+                    return None
+                pair = (pyside[-1], shiboken[-1])
+            for candidate, package in zip(pair, ("PySide6", "shiboken6")):
+                if candidate is None or not candidate.is_file():
+                    raise ValueError(f"Android wheel does not exist: {candidate}")
+                actual = self._android_wheel_version(candidate, package, arch)
+                if actual != qt_version:
+                    raise ValueError(
+                        f"Android {package} wheel must match installed PySide6 "
+                        f"{qt_version} and target {arch}: {candidate}"
+                    )
+            return pair
+
+        found = discover()
+        if found is not None:
+            return found
+
+        qtpip = self._command("qtpip")
+        cache.mkdir(parents=True, exist_ok=True)
+        self._run([qtpip, "download", "PySide6", "--android", "--arch", arch], cache)
+        found = discover()
+        if found is None:
+            raise RuntimeError(
+                f"qtpip did not produce matching PySide6/shiboken6 Android "
+                f"{arch} wheels for installed PySide6 {qt_version}. "
+                "Check available Qt Android distributions and qtpip output."
+            )
+        return found
+
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
         root = request.project_root
         if request.entry_point != "main.py":
@@ -106,39 +183,23 @@ class MobileToolchainFreezer:
         spec = root / "pysidedeploy.spec"
         if request.init_only and spec.exists():
             raise FileExistsError(f"Refusing to overwrite {spec}")
-
-        # --init does not bypass wheel validation in PySide6's Android
-        # deployer: argparse requires both wheel flags even for init-only.
-        wheels = (request.wheel_pyside, request.wheel_shiboken)
-        if request.init_only and not all(wheels):
-            raise ValueError(
-                "PySide6 Android --init-spec requires the Android target wheels "
-                "--wheel-pyside and --wheel-shiboken. Download matching wheels "
-                "for the same Qt version and CPU architecture, e.g. "
-                "'qtpip download PySide6 --android --arch aarch64', then run "
-                "'velto build --target android --init-spec "
-                "--wheel-pyside /path/to/PySide6-android.whl "
-                "--wheel-shiboken /path/to/shiboken6-android.whl'."
-            )
-
         if not request.init_only and not spec.is_file():
             raise RuntimeError(
-                "Missing pysidedeploy.spec. Initialize it with --init-spec "
-                "--wheel-pyside and --wheel-shiboken first."
+                "Missing pysidedeploy.spec. Run 'velto build --target android "
+                "--init-spec' first."
             )
 
+        wheel_pyside, wheel_shiboken = self._qt_android_wheels(request)
         command = self._command("pyside6-android-deploy")
         args = [command]
         if request.init_only:
             args.extend(["--init", "--name", request.app_name])
         else:
             args.extend(["--config-file", str(spec), "--force"])
-
-        if request.wheel_pyside is not None:
-            args.extend(["--wheel-pyside", str(request.wheel_pyside)])
-        if request.wheel_shiboken is not None:
-            args.extend(["--wheel-shiboken", str(request.wheel_shiboken)])
-
+        args.extend([
+            "--wheel-pyside", str(wheel_pyside),
+            "--wheel-shiboken", str(wheel_shiboken),
+        ])
         self._run(args, root)
         if request.init_only:
             if not spec.is_file():
