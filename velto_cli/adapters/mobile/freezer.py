@@ -102,17 +102,51 @@ class MobileToolchainFreezer:
         root = request.project_root
         if request.entry_point != "main.py":
             raise ValueError("PySide6 Android deployment requires root main.py")
+
         spec = root / "pysidedeploy.spec"
-        command = self._command("pyside6-android-deploy")
-        if request.init_only:
-            self._run([command, "--init"], root)
-            return None
-        if not spec.is_file():
-            raise RuntimeError(
-                "Missing pysidedeploy.spec. Run --init-spec and configure "
-                "the Android PySide6/shiboken6 wheels and SDK/NDK."
+        if request.init_only and spec.exists():
+            raise FileExistsError(f"Refusing to overwrite {spec}")
+
+        # --init does not bypass wheel validation in PySide6's Android
+        # deployer: argparse requires both wheel flags even for init-only.
+        wheels = (request.wheel_pyside, request.wheel_shiboken)
+        if request.init_only and not all(wheels):
+            raise ValueError(
+                "PySide6 Android --init-spec requires the Android target wheels "
+                "--wheel-pyside and --wheel-shiboken. Download matching wheels "
+                "for the same Qt version and CPU architecture, e.g. "
+                "'qtpip download PySide6 --android --arch aarch64', then run "
+                "'velto build --target android --init-spec "
+                "--wheel-pyside /path/to/PySide6-android.whl "
+                "--wheel-shiboken /path/to/shiboken6-android.whl'."
             )
-        self._run([command, "--config-file", str(spec), "--force"], root)
+
+        if not request.init_only and not spec.is_file():
+            raise RuntimeError(
+                "Missing pysidedeploy.spec. Initialize it with --init-spec "
+                "--wheel-pyside and --wheel-shiboken first."
+            )
+
+        command = self._command("pyside6-android-deploy")
+        args = [command]
+        if request.init_only:
+            args.extend(["--init", "--name", request.app_name])
+        else:
+            args.extend(["--config-file", str(spec), "--force"])
+
+        if request.wheel_pyside is not None:
+            args.extend(["--wheel-pyside", str(request.wheel_pyside)])
+        if request.wheel_shiboken is not None:
+            args.extend(["--wheel-shiboken", str(request.wheel_shiboken)])
+
+        self._run(args, root)
+        if request.init_only:
+            if not spec.is_file():
+                raise RuntimeError(
+                    "Qt Android deploy completed without generating pysidedeploy.spec."
+                )
+            return None
+
         artifact = self._latest(root, (".apk", ".aab"))
         return MobileBuildArtifact(artifact, request.target, request.framework,
                                    artifact.suffix.lstrip("."))
