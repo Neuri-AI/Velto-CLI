@@ -161,22 +161,24 @@ predates these extras, install the requirements file bundled with your
 local PySide6 installation, then rerun `velto build --target android
 --init-spec`.
 
-For PySide6 Android, Qt requires **two Android-specific wheels even with
-`--init-spec`**. These must match your target architecture and Qt version:
+For PySide6 Android, Velto now resolves the matching PySide6/Shiboken6
+Android wheels automatically, reusing a version- and architecture-specific
+cache under `~/.cache/velto/mobile/`. When the wheels are missing, the adapter
+runs Qt's documented `qtpip download PySide6 --android --arch aarch64`
+command (which needs `qtpip` installed/configured) and validates both
+downloaded wheel filenames before invoking the Android deployer.
+No wheel paths are needed in the normal workflow:
 
 ```bash
-# Obtain matching Android Qt wheels (e.g. arm64)
-qtpip download PySide6 --android --arch aarch64
-
-# Use the actual downloaded wheel paths, not the host Linux wheels
-velto build --target android --init-spec \
-  --wheel-pyside /path/to/PySide6-android.whl \
-  --wheel-shiboken /path/to/shiboken6-android.whl
+velto build --target android --init-spec
+velto build --target android --debug
 ```
 
-Verify that `pysidedeploy.spec` contains paths to the downloaded wheels.
-Subsequent builds use the spec. The Qt Android deployer requires a JDK,
-Android SDK/NDK, and target-compatible native libraries.
+Advanced users can override selection using `--wheel-pyside` and
+`--wheel-shiboken` together. Qt's `qtpip` licensing/setup and upstream
+wheel availability are external prerequisites; Velto will fail with an
+actionable error if those cannot be satisfied rather than use incompatible
+desktop wheels.
 
 These optional Python packages do **not** install the Android SDK/NDK,
 Xcode, signing credentials, target-architecture Qt wheels, or a mobile
