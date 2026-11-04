@@ -11,8 +11,7 @@
 > behavior, and configuration formats may change between releases.
 >
 > Supported workflows currently focus on desktop applications. Mobile
-> packaging is experimental and is not part of the supported production
-> workflow.
+> freezing is under active implementation and is not yet production certified.
 
 # Velto CLI
 
@@ -132,7 +131,7 @@ poetry add velto-cli
 > Resource protection encryption requires the desktop extra because it uses
 > Cython during build to compile the runtime secret module.
 
-### Experimental mobile installation
+### Mobile toolchain installation
 
 > [!WARNING]
 > Mobile packaging is experimental and is not part of the supported production
@@ -299,6 +298,34 @@ velto build --target linux
 # Additional controls
 velto build --debug --console --uac --clean --interactive
 ```
+
+### Mobile freeze commands
+
+The mobile build path uses the existing `BuildCommand`, settings and dependency
+injection container. Set `framework` to `Kivy` or `PySide6` in
+`settings/base.json`; other renderers are rejected for mobile targets.
+
+```bash
+# Generate an Android toolchain configuration (where supported)
+velto build --target android --init-spec
+
+# Kivy/Android: build an APK in debug mode
+velto build --target android --debug
+
+# Android release toolchain build
+velto build --target android
+
+# iOS: generate an Xcode project on macOS
+velto build --target ios
+```
+
+Kivy/Android uses `buildozer.spec`; PySide6 uses `pysidedeploy.spec`
+and platform-specific PySide6/shiboken6 wheels. iOS requires macOS with
+full Xcode installed. Windows Android builds should run inside WSL2.
+For iOS, a generated Xcode project is **not** a signed IPA.
+The toolchains do not automatically make Python C extensions or the
+Cinnamon Rust engine available for mobile. Build and validate those target
+artifacts before claiming a working app or publishing a mobile release.
 
 ### Protected resource encryption
 
@@ -655,7 +682,7 @@ Repository safety:
 The following areas are still under active development:
 
 - Some optional CLI flags may change or require further validation.
-- Mobile targets and Buildozer integration are experimental.
+- Mobile toolchains need target-compatible native packages and device validation.
 - Code signing and notarization require platform-specific tools and
   credentials.
 - Compatibility depends on the framework, operating system, Python version,
@@ -794,7 +821,7 @@ npm install -g create-dmg
 | **PyQt6** | `PyQt6Adapter` | Feature-complete Qt 6 desktop applications. |
 | **PyQt5** | `PyQt5Adapter` | Legacy Qt 5 desktop applications. |
 | **PySide2** | `PySide2Adapter` | Qt 5 environments; not included in the current matrix. |
-| **Kivy** | `KivyAdapter` | Cross-platform desktop interfaces; mobile support is experimental. |
+| **Kivy** | `KivyAdapter` | Cross-platform desktop interfaces; mobile packaging is being implemented. |
 | **Tkinter** | `TkinterAdapter` | Desktop utilities built on the Python standard library. |
 
 > [!WARNING]
