@@ -131,27 +131,32 @@ poetry add velto-cli
 
 ### Mobile toolchain installation
 
-> [!NOTE]
-> Buildozer is currently an optional dependency for Android/Kivy. The other
-> mobile targets require their respective native toolchains and wheels.
+Install the optional dependencies for the backend and target you intend to build:
 
 ```bash
-# Using pip
+# Android / Kivy (Linux, macOS, or WSL2)
+pip install "velto-cli[mobile-kivy-android]"
+
+# iOS / Kivy (macOS)
+pip install "velto-cli[mobile-kivy-ios]"
+
+# Android / PySide6 (Linux, macOS, or WSL2)
+pip install "velto-cli[mobile-pyside6-android]"
+
+# iOS / PySide6 (macOS)
+pip install "velto-cli[mobile-pyside6-ios]"
+
+# All applicable host-side mobile Python toolchains
 pip install "velto-cli[mobile]"
-
-# Using Poetry
-poetry add velto-cli -E mobile
 ```
 
-The `[all]` extra includes mobile build dependencies:
+The Qt deploy commands are provided by the **PySide6** distribution, not
+separate pip packages. Android requires SDK/NDK and a JDK; iOS requires
+full Xcode on macOS. Target-specific PySide6/Shiboken6 wheels and
+Cinnamon/Rust builds are still required. On Windows, run Android builds
+inside WSL2. Installing these extras does not automatically guarantee
+that a Velto project is compatible with Android or iOS.
 
-```bash
-# Using pip
-pip install "velto-cli[all]"
-
-# Using Poetry
-poetry add velto-cli -E all
-```
 
 ---
 
