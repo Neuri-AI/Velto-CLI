@@ -9,6 +9,7 @@ import sys
 from contextlib import nullcontext
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.qt_android_archive import QtAndroidWheelArchive
 from velto_cli.application.ports import ProcessRunnerPort, UserInteractionPort
@@ -233,6 +234,59 @@ class MobileToolchainFreezer:
         self._notice("Public Qt Android wheels ready.")
         return pair
 
+    def _repair_qt_android_gradle(self, root: Path, *, debug: bool) -> bool:
+        """Repair Qt bootstrap's missing Qt6Android.jar classpath entry.
+
+        Some PySide6/python-for-android combinations add only
+        Qt6AndroidBindings.jar to build.gradle, although QtActivity inherits
+        QtActivityBase from Qt6Android.jar. Work only on the generated Gradle
+        distribution, never on the user's sources or global Gradle settings.
+        """
+        dists = root / ".buildozer" / "android" / "platform"
+        if not dists.exists():
+            return False
+        candidates = sorted(
+            dists.glob("build-*/dists/*/build.gradle"),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+        for gradle in candidates:
+            distribution = gradle.parent
+            libs = distribution / "src" / "main" / "libs"
+            bindings = libs / "Qt6AndroidBindings.jar"
+            if not bindings.is_file():
+                continue
+            source = root / "deployment" / "jar" / "PySide6" / "jar" / "Qt6Android.jar"
+            if not source.is_file():
+                continue
+            try:
+                with ZipFile(source) as jar:
+                    if "org/qtproject/qt/android/QtActivityBase.class" not in jar.namelist():
+                        continue
+            except BadZipFile:
+                continue
+
+            content = gradle.read_text(encoding="utf-8")
+            binding_line = "implementation files('src/main/libs/Qt6AndroidBindings.jar')"
+            qt_line = "implementation files('src/main/libs/Qt6Android.jar')"
+            if binding_line not in content or qt_line in content:
+                continue
+            shutil.copy2(source, libs / "Qt6Android.jar")
+            gradle.write_text(
+                content.replace(binding_line, binding_line + "\\n    " + qt_line, 1),
+                encoding="utf-8",
+            )
+            self._warning(
+                "Qt Android bootstrap omitted Qt6Android.jar from Gradle; "
+                "Velto added the missing Java dependency and is resuming packaging."
+            )
+            self._run(
+                [str(distribution / "gradlew"),
+                 "assembleDebug" if debug else "bundleRelease"],
+                distribution,
+            )
+            return True
+        return False
+
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
         root = request.project_root
         if request.entry_point != "main.py":
@@ -276,7 +330,17 @@ class MobileToolchainFreezer:
             "--wheel-pyside", str(wheel_pyside),
             "--wheel-shiboken", str(wheel_shiboken),
         ])
-        self._run(args, root)
+        try:
+            self._run(args, root)
+        except RuntimeError:
+            # Qt's wrapper can report Buildozer failure (or exit 0 without an
+            # APK) when QtActivityBase is absent from Gradle's Java classpath.
+            # Retry only when the generated project proves the missing-JAR
+            # condition; unrelated deployment failures retain their error.
+            if request.init_only or not self._repair_qt_android_gradle(
+                root, debug=request.debug
+            ):
+                raise
         if request.init_only:
             if not spec.is_file():
                 raise RuntimeError(
@@ -287,12 +351,15 @@ class MobileToolchainFreezer:
         try:
             artifact = self._latest(root, (".apk", ".aab"))
         except RuntimeError as exc:
-            raise RuntimeError(
-                "PySide6 Android deployment returned without an APK/AAB. "
-                "The Qt deployment wrapper may have swallowed a Buildozer error. "
-                "Inspect the preceding toolchain output for its first failure "
-                "(e.g. missing javac, SDK, or NDK)."
-            ) from exc
+            if self._repair_qt_android_gradle(root, debug=request.debug):
+                artifact = self._latest(root, (".apk", ".aab"))
+            else:
+                raise RuntimeError(
+                    "PySide6 Android deployment returned without an APK/AAB. "
+                    "The Qt deployment wrapper may have swallowed a Buildozer error. "
+                    "Inspect the preceding toolchain output for its first failure "
+                    "(e.g. missing javac, SDK, or NDK)."
+                ) from exc
         return MobileBuildArtifact(artifact, request.target, request.framework,
                                    artifact.suffix.lstrip("."))
 
