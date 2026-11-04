@@ -439,8 +439,9 @@ def test_pyside_android_build_keeps_modules_and_gradle_diagnostics(
     assert "--keep-deployment-files" in args
 
 
+@pytest.mark.parametrize("declaration_exists", [False, True])
 def test_pyside_qt_android_automatically_repairs_missing_base_jar(
-    project, monkeypatch,
+    project, monkeypatch, declaration_exists,
 ):
     """Regression: Gradle initially misses QtActivityBase but Velto resumes."""
     (project / "pysidedeploy.spec").write_text("[qt]\nmodules = \n")
@@ -457,6 +458,11 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
         "  implementation files('src/main/libs/Qt6AndroidBindings.jar')\n"
         "}\n"
     )
+    if declaration_exists:
+        with (dist / "build.gradle").open("a") as stream:
+            stream.write(
+                "implementation files('src/main/libs/Qt6Android.jar')\\n"
+            )
     source = project / "deployment" / "jar" / "PySide6" / "jar" / "Qt6Android.jar"
     source.parent.mkdir(parents=True)
     with ZipFile(source, "w") as archive:
@@ -496,5 +502,6 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     assert (libs / "Qt6Android.jar").read_bytes() == source.read_bytes()
     content = (dist / "build.gradle").read_text()
     assert "implementation files('src/main/libs/Qt6Android.jar')" in content
-    assert "Bindings.jar')\n    implementation files" in content
+    if not declaration_exists:
+        assert "Bindings.jar')\n    implementation files" in content
     assert runner.run.call_count == 2
