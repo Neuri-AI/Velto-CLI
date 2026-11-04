@@ -397,3 +397,42 @@ def test_pyside_build_reports_missing_javac_before_download(project, monkeypatch
         MobileToolchainFreezer(runner).freeze(request)
     runner.run.assert_not_called()
     runner.run_capture.assert_not_called()
+
+
+def test_pyside_android_build_keeps_modules_and_gradle_diagnostics(
+    project, monkeypatch,
+):
+    """Deploy receives explicit native PSX Qt modules even if spec is rewritten."""
+    (project / "pysidedeploy.spec").write_text("[qt]\\nmodules = \\n")
+    apk = project / "app.apk"
+    apk.write_bytes(b"apk")
+    runner = Mock()
+    runner.run.return_value = 0
+    wheels = (
+        project / "PySide6-6.12.0-cp310-abi3-android_aarch64.whl",
+        project / "shiboken6-6.12.0-cp310-abi3-android_aarch64.whl",
+    )
+    for wheel in wheels:
+        wheel.touch()
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.shutil.which",
+        lambda name: "/usr/bin/" + name,
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.distribution_version",
+        lambda name: "6.12.0",
+    )
+    request = MobileFreezeRequest(
+        project_root=project,
+        target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6,
+        app_name="Demo",
+        version="1.0.0",
+        init_only=False,
+        wheel_pyside=wheels[0],
+        wheel_shiboken=wheels[1],
+    )
+    MobileToolchainFreezer(runner).freeze(request)
+    args = runner.run.call_args.args[0]
+    assert args[args.index("--extra-modules") + 1] == "Core,Gui,Widgets"
+    assert "--keep-deployment-files" in args
