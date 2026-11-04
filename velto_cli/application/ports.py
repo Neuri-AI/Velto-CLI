@@ -10,6 +10,7 @@ No concrete infrastructure dependencies are allowed here.
 
 from pathlib import Path
 from typing import Any, Optional, Protocol, Sequence
+from contextlib import AbstractContextManager
 from velto_cli.domain.version import Version
 
 from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest
@@ -74,6 +75,9 @@ class UserInteractionPort(Protocol):
 
     def progress(self, message: str) -> None:
         """Notify that a long-running operation is starting."""
+
+    def status(self, message: str) -> AbstractContextManager[object]:
+        """Show a live progress indicator while a blocking operation runs."""
 
     def error(self, message: str) -> None: ...
 
@@ -199,6 +203,14 @@ class ProcessRunnerPort(Protocol):
         env: Optional[dict[str, str]] = None,
         cwd: Optional[str] = None,
     ) -> int: ...
+
+    def run_capture(
+        self,
+        command: Sequence[str],
+        env: Optional[dict[str, str]] = None,
+        cwd: Optional[str] = None,
+    ) -> tuple[int, str]:
+        """Capture diagnostic output from a process without printing it raw."""
 
 
 class AppRunnerPort(Protocol):
