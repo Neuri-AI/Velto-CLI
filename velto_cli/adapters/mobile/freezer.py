@@ -9,6 +9,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
 
+from velto_cli.adapters.mobile.qt_android_archive import QtAndroidWheelArchive
 from velto_cli.application.ports import ProcessRunnerPort
 from velto_cli.domain.mobile import (
     MobileBuildArtifact, MobileFramework, MobileFreezeRequest, MobileTarget,
@@ -114,7 +115,7 @@ class MobileToolchainFreezer:
         """Resolve matching Android wheels, downloading once into Velto's cache.
 
         Explicit wheel paths are an advanced override; default workflow downloads
-        through Qt's qtpip utility into a version/architecture-specific directory.
+        from Qt's public open-source archive into ~/.velto/mobile/.
         """
         arch = "aarch64"
         try:
@@ -163,23 +164,7 @@ class MobileToolchainFreezer:
         if found is not None:
             return found
 
-        qtpip = self._command("qtpip")
-        cache.mkdir(parents=True, exist_ok=True)
-        self._run([qtpip, "download", "PySide6", "--android", "--arch", arch], cache)
-        found = discover()
-        if found is None:
-            raise RuntimeError(
-                f"PySide6/shiboken6 Android {arch} wheels for Qt {qt_version} "
-                "could not be downloaded. qtpip uses Qt commercial credentials; "
-                "its 'Commercial License NOT found' error means this download "
-                "route requires a configured commercial license. An open-source "
-                "alternative is to build compatible Android wheels from Qt for "
-                "Python source (see the official Android cross-compilation guide), "
-                "then supply both wheels using --wheel-pyside and "
-                "--wheel-shiboken. Velto cannot silently bypass Qt licensing "
-                "or build these wheels without the Android Qt toolchain."
-            )
-        return found
+        return QtAndroidWheelArchive().resolve(qt_version, arch, cache)
 
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
         root = request.project_root
