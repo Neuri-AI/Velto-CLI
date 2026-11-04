@@ -30,6 +30,8 @@ from velto_cli.adapters.freeze.optimizer import BinaryOptimizer
 from velto_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
 from velto_cli.adapters.freeze.psx_source_preparer import PSXProjectSourcePreparer
 from velto_cli.application.use_cases.freeze import FreezeDesktopUseCase
+from velto_cli.application.use_cases.freeze_mobile import FreezeMobileUseCase
+from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
 from velto_cli.application.use_cases.bundle import BundleReleaseUseCase
 from velto_cli.application.use_cases.clean import CleanProjectUseCase
 from velto_cli.application.use_cases.sign import SignCompiledAppUseCase
@@ -123,6 +125,13 @@ class Container:
             optimizer=self.optimizer,
             ui=self.ui,
         )
+
+        self.mobile_builder = MobileToolchainFreezer(runner=self.subprocess_runner)
+        self.freeze_mobile_use_case = FreezeMobileUseCase(
+            builder=self.mobile_builder, settings_repo=self.settings, ui=self.ui,
+        )
+        # Compatibility with the existing CLI mobile dispatch name.
+        self.mobile_build_use_case = self.freeze_mobile_use_case
 
         self.bundle_release_use_case = BundleReleaseUseCase(
             bundler=self.bundler,
