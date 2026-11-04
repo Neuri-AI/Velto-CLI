@@ -59,6 +59,19 @@ mobile-pyside6 = [
     "cython>=0.29.34,<3.0; extra != 'desktop'",
 ]
 
+# Opt-in commercial Qt tooling. The ordinary mobile-pyside6 extra stays
+# usable without a Qt commercial license. If qtpip is installed and licensed,
+# the mobile adapter prefers it over the public wheel archive.
+mobile-pyside6-commercial = [
+    "PySide6>=6.12.0,<7.0.0",
+    "buildozer>=1.6.0,<2.0.0; sys_platform != 'win32'",
+    "jinja2>=3.1,<4.0; sys_platform != 'win32'",
+    "pkginfo>=1.12,<2.0; sys_platform != 'win32'",
+    "tqdm>=4.66,<5.0; sys_platform != 'win32'",
+    "cython>=0.29.34,<3.0; extra != 'desktop'",
+    "qtpip>=0.1.4,<1.0.0; sys_platform != 'win32'",
+]
+
 # Convenience extra: installs both backends' applicable host-side tools.
 mobile = [
     "buildozer>=1.6.0,<2.0.0; sys_platform != 'win32'",
