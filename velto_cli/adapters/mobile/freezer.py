@@ -268,13 +268,26 @@ class MobileToolchainFreezer:
             content = gradle.read_text(encoding="utf-8")
             binding_line = "implementation files('src/main/libs/Qt6AndroidBindings.jar')"
             qt_line = "implementation files('src/main/libs/Qt6Android.jar')"
-            if binding_line not in content or qt_line in content:
+            if binding_line not in content:
                 continue
-            shutil.copy2(source, libs / "Qt6Android.jar")
-            gradle.write_text(
-                content.replace(binding_line, binding_line + "\n    " + qt_line, 1),
-                encoding="utf-8",
-            )
+            # The user may have added the Gradle declaration during an
+            # earlier attempt. Buildozer regenerates src/main/libs on each
+            # invocation, which removes the JAR while leaving build.gradle.
+            # Repair either missing piece, not just a missing declaration.
+            qt_jar = libs / "Qt6Android.jar"
+            try:
+                current = qt_jar.is_file() and qt_jar.read_bytes() == source.read_bytes()
+            except OSError:
+                current = False
+            if qt_line in content and current:
+                continue
+            if not current:
+                shutil.copy2(source, qt_jar)
+            if qt_line not in content:
+                gradle.write_text(
+                    content.replace(binding_line, binding_line + "\n    " + qt_line, 1),
+                    encoding="utf-8",
+                )
             self._warning(
                 "Qt Android bootstrap omitted Qt6Android.jar from Gradle; "
                 "Velto added the missing Java dependency and is resuming packaging."
