@@ -1,7 +1,7 @@
 import argparse
 from unittest.mock import ANY, Mock
 
-from qyro_cli.cmdline.commands.sign import SignCommand
+from velto_cli.cmdline.commands.sign import SignCommand
 
 
 def test_configure_defines_sign_arguments():
@@ -21,7 +21,7 @@ def test_execute_delegates_to_sign_use_case(monkeypatch):
     container.sign_compiled_app_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.sign.get_container",
+        "velto_cli.cmdline.commands.sign.get_container",
         lambda: container,
     )
 
@@ -43,7 +43,7 @@ def test_execute_runs_check_mode(monkeypatch):
     container.sign_compiled_app_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.sign.get_container",
+        "velto_cli.cmdline.commands.sign.get_container",
         lambda: container,
     )
 
@@ -69,7 +69,7 @@ def test_execute_returns_one_on_error(monkeypatch):
     container.ui = Mock()
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.sign.get_container",
+        "velto_cli.cmdline.commands.sign.get_container",
         lambda: container,
     )
 

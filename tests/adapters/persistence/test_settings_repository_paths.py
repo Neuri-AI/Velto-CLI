@@ -1,6 +1,6 @@
 import json
 
-from qyro_cli.adapters.persistence.storage import SettingsRepository
+from velto_cli.adapters.persistence.storage import SettingsRepository
 
 
 def test_loads_base_from_settings_base(tmp_path):

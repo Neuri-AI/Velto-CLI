@@ -6,7 +6,7 @@ from unittest import mock
 
 import pytest
 
-from qyro_cli.adapters.process.runners import (
+from velto_cli.adapters.process.runners import (
     ImportlibModuleRegistry,
     QyroUploader,
     SubprocessAppRunner,
@@ -31,7 +31,7 @@ class TestImportlibModuleRegistry:
         registry = ImportlibModuleRegistry()
 
         with mock.patch(
-            "qyro_cli.adapters.process.runners.find_spec",
+            "velto_cli.adapters.process.runners.find_spec",
             side_effect=ImportError,
         ):
             assert registry.is_installed("example") is False
@@ -42,7 +42,7 @@ class TestImportlibModuleRegistry:
         registry = ImportlibModuleRegistry()
 
         with mock.patch(
-            "qyro_cli.adapters.process.runners.find_spec",
+            "velto_cli.adapters.process.runners.find_spec",
             side_effect=ValueError,
         ):
             assert registry.is_installed("example") is False
@@ -69,7 +69,7 @@ class TestSubprocessAppRunner:
             observed["source"] = open(generated, encoding="utf-8").read()
             return mock.Mock(returncode=0)
 
-        with mock.patch("qyro_cli.adapters.process.runners.subprocess.run", side_effect=run):
+        with mock.patch("velto_cli.adapters.process.runners.subprocess.run", side_effect=run):
             result = SubprocessAppRunner().run_from_source(str(source), str(tmp_path))
 
         assert result == 0
@@ -81,7 +81,7 @@ class TestSubprocessAppRunner:
         monkeypatch.setenv("PYTHONPATH", "existing/path")
 
         with mock.patch(
-            "qyro_cli.adapters.process.runners.subprocess.run"
+            "velto_cli.adapters.process.runners.subprocess.run"
         ) as run:
             run.return_value.returncode = 0
 
@@ -108,7 +108,7 @@ class TestSubprocessAppRunner:
         monkeypatch.delenv("PYTHONPATH", raising=False)
 
         with mock.patch(
-            "qyro_cli.adapters.process.runners.subprocess.run"
+            "velto_cli.adapters.process.runners.subprocess.run"
         ) as run:
             run.return_value.returncode = 7
 
@@ -126,7 +126,7 @@ class TestSubprocessAppRunner:
         runner = SubprocessAppRunner()
 
         with mock.patch(
-            "qyro_cli.adapters.process.runners.subprocess.run"
+            "velto_cli.adapters.process.runners.subprocess.run"
         ) as run:
             run.return_value.returncode = 42
 
@@ -162,7 +162,7 @@ class TestUnittestRunner:
         runner = UnittestRunner()
 
         with mock.patch(
-            "qyro_cli.adapters.process.runners.defaultTestLoader.discover"
+            "velto_cli.adapters.process.runners.defaultTestLoader.discover"
         ) as discover:
             discover.return_value = mock.Mock()
             discover.return_value.__iter__ = mock.Mock(
@@ -187,10 +187,10 @@ class TestUnittestRunner:
         discovered_test = mock.Mock()
 
         with mock.patch(
-            "qyro_cli.adapters.process.runners.defaultTestLoader.discover",
+            "velto_cli.adapters.process.runners.defaultTestLoader.discover",
             return_value=discovered_test,
         ) as discover, mock.patch(
-            "qyro_cli.adapters.process.runners.TextTestRunner.run"
+            "velto_cli.adapters.process.runners.TextTestRunner.run"
         ) as test_runner_run:
             result = runner.run(
                 str(tmp_path),

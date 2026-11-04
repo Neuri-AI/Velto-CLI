@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from qyro_cli.adapters.templates.bundled import BundledTemplateProvider
-from qyro_cli.domain.errors import TemplateUnavailableError
-from qyro_cli.domain.project import Binding, TargetPlatform
-from qyro_cli.domain.version import Version
+from velto_cli.adapters.templates.bundled import BundledTemplateProvider
+from velto_cli.domain.errors import TemplateUnavailableError
+from velto_cli.domain.project import Binding, TargetPlatform
+from velto_cli.domain.version import Version
 
 
 class TestBundledTemplateProvider:

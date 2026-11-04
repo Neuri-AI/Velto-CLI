@@ -1,7 +1,7 @@
 
 import pytest
 
-from qyro_cli.cmdline import registry
+from velto_cli.cmdline import registry
 
 
 @pytest.fixture(autouse=True)

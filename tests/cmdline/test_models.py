@@ -1,6 +1,6 @@
 from argparse import ArgumentParser, Namespace
 
-from qyro_cli.cmdline.models import CommandDefinition
+from velto_cli.cmdline.models import CommandDefinition
 
 
 def test_command_definition_defaults_aliases():

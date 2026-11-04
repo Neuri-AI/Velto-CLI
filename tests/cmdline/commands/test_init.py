@@ -2,7 +2,7 @@
 import argparse
 from unittest.mock import Mock
 
-from qyro_cli.cmdline.commands.init import InitCommand
+from velto_cli.cmdline.commands.init import InitCommand
 
 
 def test_configure_defines_init_arguments():
@@ -13,7 +13,7 @@ def test_configure_defines_init_arguments():
     args = parser.parse_args([])
 
     assert args.name == "."
-    assert args.binding is None
+    assert args.framework is None
     assert args.template_version is None
     assert args.target_platform is None
     assert args.app_name is None
@@ -33,8 +33,8 @@ def test_configure_accepts_all_arguments():
         [
             "--name",
             "MyApp",
-            "--binding",
-            "PySide6",
+            "--framework",
+            "pyside6",
             "--template-version",
             "1.2.3",
             "--target-platform",
@@ -56,7 +56,7 @@ def test_configure_accepts_all_arguments():
     )
 
     assert args.name == "MyApp"
-    assert args.binding == "PySide6"
+    assert args.framework == "PySide6"
     assert args.template_version == "1.2.3"
     assert args.target_platform == "desktop"
     assert args.app_name == "My App"
@@ -73,13 +73,13 @@ def test_execute_delegates_to_init_use_case(monkeypatch):
     container.init_project_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.init.get_container",
+        "velto_cli.cmdline.commands.init.get_container",
         lambda: container,
     )
 
     args = argparse.Namespace(
         name="MyApp",
-        binding="PySide6",
+        framework="PySide6",
         template_version="1.2.3",
         target_platform=None,
         app_name=None,
@@ -114,13 +114,13 @@ def test_execute_passes_none_for_optional_arguments(monkeypatch):
     container.init_project_use_case = use_case
 
     monkeypatch.setattr(
-        "qyro_cli.cmdline.commands.init.get_container",
+        "velto_cli.cmdline.commands.init.get_container",
         lambda: container,
     )
 
     args = argparse.Namespace(
         name=".",
-        binding=None,
+        framework=None,
         template_version=None,
         target_platform="desktop",
         app_name="My App",

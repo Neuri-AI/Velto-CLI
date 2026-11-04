@@ -1,8 +1,8 @@
 from pathlib import Path
 from unittest.mock import Mock
 
-from qyro_cli.application.use_cases.bundle import BundleReleaseUseCase
-from qyro_cli.domain.build import BundleArtifact
+from velto_cli.application.use_cases.bundle import BundleReleaseUseCase
+from velto_cli.domain.build import BundleArtifact
 
 
 def test_bundle_use_case_validates_and_delegates(tmp_path):

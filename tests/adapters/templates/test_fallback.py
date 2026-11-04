@@ -1,9 +1,9 @@
 from pathlib import Path
 from unittest.mock import Mock
 
-from qyro_cli.adapters.templates.fallback import FallbackTemplateProvider
-from qyro_cli.domain.project import Binding, TargetPlatform
-from qyro_cli.domain.version import Version
+from velto_cli.adapters.templates.fallback import FallbackTemplateProvider
+from velto_cli.domain.project import Binding, TargetPlatform
+from velto_cli.domain.version import Version
 
 
 class TestFallbackTemplateProvider:

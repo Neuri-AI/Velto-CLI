@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rich.console import Console
 
-from qyro_cli.adapters.cli.console_ui import (
+from velto_cli.adapters.cli.console_ui import (
     QUESTIONARY_STYLE,
     RichConsoleUI,
 )
@@ -19,7 +19,7 @@ def ui(console):
     return RichConsoleUI(console=console)
 
 
-@patch("qyro_cli.adapters.cli.console_ui.Prompt.ask")
+@patch("velto_cli.adapters.cli.console_ui.Prompt.ask")
 def test_ask_text(mock_ask, ui):
     mock_ask.return_value = "MyApp"
 
@@ -34,7 +34,7 @@ def test_ask_text(mock_ask, ui):
     )
 
 
-@patch("qyro_cli.adapters.cli.console_ui.Prompt.ask")
+@patch("velto_cli.adapters.cli.console_ui.Prompt.ask")
 def test_ask_text_with_default(mock_ask, ui):
     mock_ask.return_value = "MyApp"
 
@@ -62,7 +62,7 @@ def test_ask_choice_without_choices(ui):
     assert result == "PySide6"
 
 
-@patch("qyro_cli.adapters.cli.console_ui.questionary.select")
+@patch("velto_cli.adapters.cli.console_ui.questionary.select")
 def test_ask_choice(mock_select, ui):
     mock_select.return_value.ask.return_value = "PySide6"
 
@@ -81,7 +81,7 @@ def test_ask_choice(mock_select, ui):
     )
 
 
-@patch("qyro_cli.adapters.cli.console_ui.questionary.select")
+@patch("velto_cli.adapters.cli.console_ui.questionary.select")
 def test_ask_choice_raises_when_cancelled(
     mock_select,
     ui,
@@ -96,7 +96,7 @@ def test_ask_choice_raises_when_cancelled(
         )
 
 
-@patch("qyro_cli.adapters.cli.console_ui.questionary.checkbox")
+@patch("velto_cli.adapters.cli.console_ui.questionary.checkbox")
 def test_ask_multi_choice(mock_checkbox, ui):
     mock_checkbox.return_value.ask.return_value = [
         "Sentry",
@@ -126,7 +126,7 @@ def test_ask_multi_choice(mock_checkbox, ui):
     )
 
 
-@patch("qyro_cli.adapters.cli.console_ui.questionary.checkbox")
+@patch("velto_cli.adapters.cli.console_ui.questionary.checkbox")
 def test_ask_multi_choice_raises_when_cancelled(
     mock_checkbox,
     ui,
@@ -140,7 +140,7 @@ def test_ask_multi_choice_raises_when_cancelled(
         )
 
 
-@patch("qyro_cli.adapters.cli.console_ui.Confirm.ask")
+@patch("velto_cli.adapters.cli.console_ui.Confirm.ask")
 def test_confirm(mock_confirm, ui):
     mock_confirm.return_value = True
 
@@ -154,7 +154,7 @@ def test_confirm(mock_confirm, ui):
     )
 
 
-@patch("qyro_cli.adapters.cli.console_ui.Confirm.ask")
+@patch("velto_cli.adapters.cli.console_ui.Confirm.ask")
 def test_confirm_with_default(mock_confirm, ui):
     mock_confirm.return_value = False
 

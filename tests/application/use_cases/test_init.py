@@ -1,12 +1,13 @@
 from pathlib import Path
 from unittest.mock import Mock
+import json
 
 import pytest
 
-from qyro_cli.application.use_cases.init import InitProjectUseCase
-from qyro_cli.domain.errors import ProjectAlreadyExistsError
-from qyro_cli.domain.project import Binding, TargetPlatform
-from qyro_cli.domain.version import Version
+from velto_cli.application.use_cases.init import InitProjectUseCase
+from velto_cli.domain.errors import ProjectAlreadyExistsError
+from velto_cli.domain.project import Binding, TargetPlatform
+from velto_cli.domain.version import Version
 
 
 def make_use_case():
@@ -15,6 +16,7 @@ def make_use_case():
     dependencies = Mock()
     templates = Mock()
     settings = Mock()
+    fs.read_text.return_value = '{"entry_point": "main.py", "framework": "PySide6"}'
 
     use_case = InitProjectUseCase(
         ui=ui,
@@ -187,7 +189,7 @@ class TestInitProjectUseCase:
         fs.render_tree.assert_called_once()
         variables = fs.render_tree.call_args.args[1]
 
-        assert variables["binding"] == "PySide6"
+        assert variables["framework"] == "PySide6"
         assert variables["version"] == "1.0.0"
         assert variables["addons"] == ["pydux", "sentry-sdk"]
 
@@ -339,3 +341,82 @@ class TestInitProjectUseCase:
         ui.ask_multi_choice.assert_not_called()
         variables = fs.render_tree.call_args.args[1]
         assert variables["addons"] == []
+
+    def test_execute_persists_canonical_framework_settings(self, tmp_path):
+        use_case, ui, fs, _dependencies, templates, _settings = make_use_case()
+
+        templates.resolve_template.return_value = Path("/templates/pyside6")
+        fs.exists.return_value = False
+
+        use_case.execute(
+            target_dir=str(tmp_path),
+            default_binding="PySide6",
+            target_platform="desktop",
+            app_name="My App",
+            app_version="1.0.0",
+            author="Jane",
+            addons=[],
+            confirm=True,
+        )
+
+        persisted = json.loads(fs.write_text.call_args.args[1])
+        assert persisted["framework"] == "PySide6"
+        assert persisted["framework"] == "PySide6"
+
+
+    @pytest.mark.parametrize("binding", ["PySide6", "Tkinter", "Kivy"])
+    def test_execute_renders_boilerplate_with_real_files(self, tmp_path, binding):
+        from velto_cli.adapters.persistence.storage import OsFileSystem
+
+        use_case, _ui, _fs, dependencies, templates, _settings = make_use_case()
+        use_case.fs = OsFileSystem()
+        template = tmp_path / "template"
+        (template / "settings").mkdir(parents=True)
+        (template / "settings" / "base.json").write_text(
+            '{"app_name": "${app_name}", "author": "${author}", '
+            '"entry_point": "main.py", "addons": ${addons}, '
+            '"version": "${version}", "framework": "${framework}", '
+            '"hidden_imports": ["__future__"], '
+            '"window": {"width": 800, "height": 600}}',
+            encoding="utf-8",
+        )
+        (template / "main.py").write_text(
+            'APP_NAME = "${app_name}"\nFRAMEWORK = "${framework}"\n',
+            encoding="utf-8",
+        )
+        (template / "settings" / "windows.json").write_text(
+            '{"excluded_binary": "${binding}.QtCore.pyd"}',
+            encoding="utf-8",
+        )
+        templates.resolve_template.return_value = template
+        destination = tmp_path / "generated"
+
+        use_case.execute(
+            target_dir=str(destination),
+            default_binding=binding,
+            target_platform="desktop",
+            app_name="My App",
+            app_version="1.2.3",
+            author="Jane",
+            addons=["requests"],
+            confirm=True,
+        )
+
+        content = (destination / "settings" / "base.json").read_text()
+        settings = json.loads(content)
+        assert "${" not in content
+        assert settings["app_name"] == "My App"
+        assert settings["author"] == "Jane"
+        assert settings["version"] == "1.2.3"
+        assert settings["framework"] == binding
+        assert settings["addons"] == ["requests"]
+        assert settings["entry_point"] == "main.py"
+        assert settings["window"] == {"width": 800, "height": 600}
+        assert settings["hidden_imports"] == ["__future__"]
+        assert (destination / "main.py").read_text() == (
+            f'APP_NAME = "My App"\nFRAMEWORK = "{binding}"\n'
+        )
+        assert json.loads(
+            (destination / "settings" / "windows.json").read_text()
+        ) == {"excluded_binary": f"{binding}.QtCore.pyd"}
+        dependencies.install.assert_called_once_with(str(destination))

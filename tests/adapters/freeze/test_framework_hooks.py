@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from qyro_cli.adapters.freeze.framework_hooks import FrameworkHookResolver
-from qyro_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
-from qyro_cli.domain.build import FreezeManifest
-from qyro_cli.domain.project import Binding
+from velto_cli.adapters.freeze.framework_hooks import FrameworkHookResolver
+from velto_cli.adapters.freeze.pyinstaller_adapter import PyInstallerFreezer
+from velto_cli.domain.build import FreezeManifest
+from velto_cli.domain.project import Binding
 
 
 @pytest.mark.parametrize("binding", list(Binding))
@@ -68,7 +68,7 @@ def Counter():
     generated = Path(cmd[3])
     assert generated != entry
     assert generated.is_file()
-    assert cmd[cmd.index("--paths") + 1] == str(tmp_path)
+    assert cmd[cmd.index("--paths") + 1] == str(tmp_path / "build" / "psx-compiled")
     assert entry.read_text(encoding="utf-8") == source
 
     namespace = {"__name__": "frozen_counter"}
@@ -177,7 +177,7 @@ def test_framework_hooks_exclude_local_secret_and_signing_files(tmp_path):
     assert not any("sign.json" in value for value in add_data_values)
 
 
-@pytest.mark.parametrize("bundle_path", [".qyro/resources.pak", "custom/assets.pak"])
+@pytest.mark.parametrize("bundle_path", [".velto/resources.pak", "custom/assets.pak"])
 def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monkeypatch, bundle_path):
     import shutil
     import sys
@@ -191,7 +191,7 @@ def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monk
     resources_dir = project_root / "resources"
     settings_dir.mkdir(parents=True)
     resources_dir.mkdir(parents=True)
-    (settings_dir / "base.json").write_text('{"app_name": "MyApp", "binding": "PySide6"}', encoding="utf-8")
+    (settings_dir / "base.json").write_text('{"app_name": "MyApp", "framework": "PySide6"}', encoding="utf-8")
     (settings_dir / "secrets.json").write_text('{"api": {"token": "local-secret"}}', encoding="utf-8")
     (resources_dir / "logo.png").write_text("png", encoding="utf-8")
 
@@ -208,7 +208,7 @@ def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monk
     cmd = freezer.build_command(project_root, manifest)
 
     pak_path = project_root / bundle_path
-    external_secrets_path = project_root / ".qyro" / "secrets.json"
+    external_secrets_path = project_root / ".velto" / "secrets.json"
     runtime_dir = pak_path.parent
 
     assert pak_path.exists()
@@ -217,9 +217,9 @@ def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monk
     assert runtime_candidates
     assert "--add-data" in cmd
     add_data_values = [cmd[i + 1] for i, token in enumerate(cmd) if token == "--add-data"]
-    assert any(".qyro/resources.pak" in value for value in add_data_values)
+    assert any(".velto/resources.pak" in value for value in add_data_values)
     assert any("runtime" in value and (".so" in value or ".pyd" in value) for value in add_data_values)
-    assert not any(".qyro/secrets.json" in value for value in add_data_values)
+    assert not any(".velto/secrets.json" in value for value in add_data_values)
 
     # Simulate PyInstaller's data layout and read it through the real runtime:
     # neither plaintext settings nor a source working directory is available.
@@ -233,7 +233,7 @@ def test_build_command_embeds_protected_bundle_and_runtime_module(tmp_path, monk
     monkeypatch.setattr(sys, "_MEIPASS", str(frozen_root), raising=False)
     env = SystemEnvironmentAdapter()
     settings = JsonSettingsAdapter(env).get_raw_settings()
-    assert settings["binding"] == "PySide6"
+    assert settings["framework"] == "PySide6"
     assert settings["api"]["token"] == "local-secret"
     extracted = ProtectedResourceBundle.get_extracted_root(env)
     assert (extracted / "resources/logo.png").read_text(encoding="utf-8") == "png"
@@ -261,3 +261,151 @@ def test_copy_mac_resources_skips_plain_resources_when_protected(tmp_path):
     freezer._copy_mac_resources(project_root, app_bundle, manifest)
 
     assert not (resources_dest / "linux" / "icons" / "128.png").exists()
+
+
+def test_freeze_precompiles_components_without_shipping_python_data(tmp_path, monkeypatch):
+    pytest.importorskip("psx")
+    (tmp_path / "main.py").write_text(
+        "from components.sidebar import Sidebar\n", encoding="utf-8",
+    )
+    package = tmp_path / "components"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    original = (
+        "from psx import component, psx\n"
+        "@component\n"
+        "def Sidebar():\n"
+        "    return psx('<div><p>Sidebar</p></div>')\n"
+    )
+    (package / "sidebar.py").write_text(original, encoding="utf-8")
+    freezer = PyInstallerFreezer(FrameworkHookResolver())
+    monkeypatch.setattr(
+        freezer, "_prepare_protected_secrets_package",
+        lambda **_: (tmp_path / "resources.pak", tmp_path / "runtime.pyd"),
+    )
+    manifest = FreezeManifest(
+        app_name="MyApp", binding="PySide6", entry_point="main.py",
+        target_platform="windows", protect_resources=False,
+    )
+    cmd = freezer.build_command(tmp_path, manifest)
+    staged_root = tmp_path / "build" / "psx-compiled"
+    assert Path(cmd[3]) == staged_root / "main.py"
+    assert cmd[cmd.index("--paths") + 1] == str(staged_root)
+    assert "__psx_build_precompiled__ = True" in (
+        staged_root / "components" / "sidebar.py"
+    ).read_text(encoding="utf-8")
+    assert (package / "sidebar.py").read_text(encoding="utf-8") == original
+    add_data = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--add-data"]
+    assert all("sidebar.py" not in value for value in add_data)
+    assert all("psx-component-sources" not in value for value in add_data)
+
+
+def test_precompiled_modules_import_without_readable_original_source(tmp_path):
+    pytest.importorskip("psx")
+    from unittest.mock import patch
+    from velto_cli.adapters.freeze.psx_source_preparer import PSXProjectSourcePreparer
+
+    original = tmp_path / "components"
+    original.mkdir()
+    (original / "__init__.py").write_text("", encoding="utf-8")
+    (original / "sidebar.py").write_text(
+        "from psx import component, psx\n"
+        "@component\n"
+        "def Sidebar():\n"
+        "    return psx('<div><p>Frozen</p></div>')\n",
+        encoding="utf-8",
+    )
+    entry = tmp_path / "main.py"
+    entry.write_text("from components.sidebar import Sidebar\n", encoding="utf-8")
+    prepared, staging = PSXProjectSourcePreparer().prepare(tmp_path, entry)
+    assert prepared == staging / "main.py"
+
+    # Simulate PyInstaller's bytecode-only modules: no readable source path.
+    from types import ModuleType
+    import sys
+    module = ModuleType("compiled_sidebar")
+    module.__file__ = "/nonexistent/components/sidebar.pyc"
+    module.__package__ = "components"
+    compiled = compile(
+        (staging / "components" / "sidebar.py").read_text(encoding="utf-8"),
+        module.__file__, "exec",
+    )
+    with patch("psx.markup.component_compiler.inspect.getsourcelines",
+               side_effect=AssertionError("reading source at runtime")):
+        exec(compiled, module.__dict__)
+    assert module.Sidebar.__class__.__name__ == "ComponentType"
+
+
+def test_source_exposure_guard_rejects_plaintext_app_modules(tmp_path):
+    from velto_cli.adapters.freeze.source_exposure_guard import SourceExposureGuard
+    from velto_cli.domain.build import BundleMode
+    from velto_cli.domain.errors import QyroError
+
+    (tmp_path / "main.py").write_text("print(1)\n")
+    (tmp_path / "components").mkdir()
+    (tmp_path / "components" / "sidebar.py").write_text("print(2)\n")
+    frozen = tmp_path / "frozen" / "_internal" / "components"
+    frozen.mkdir(parents=True)
+    (frozen / "sidebar.py").write_text("print(2)\n")
+    with pytest.raises(QyroError, match="plaintext application Python sources"):
+        SourceExposureGuard().verify(
+            project_root=tmp_path,
+            entry_point=tmp_path / "main.py",
+            output_dir=tmp_path / "frozen",
+            executable_path=tmp_path / "frozen" / "MyApp",
+            mode=BundleMode.ONEDIR,
+        )
+
+
+def test_freeze_cleans_temporary_precompiled_source_tree(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from velto_cli.adapters.freeze.psx_source_preparer import PSXProjectSourcePreparer
+
+    (tmp_path / "main.py").write_text(
+        "from psx import component, psx\n"
+        "@component\n"
+        "def View():\n"
+        "    return psx('<Text>Frozen</Text>')\n",
+        encoding="utf-8",
+    )
+    freezer = PyInstallerFreezer(
+        FrameworkHookResolver(), source_preparer=PSXProjectSourcePreparer(),
+    )
+    monkeypatch.setattr(
+        freezer, "_prepare_protected_secrets_package",
+        lambda **_: (tmp_path / "resources.pak", tmp_path / "runtime.so"),
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.freeze.pyinstaller_adapter.subprocess.run",
+        lambda *args, **kwargs: Mock(returncode=0, stdout=""),
+    )
+    manifest = FreezeManifest(
+        app_name="MyApp", binding="PySide6", entry_point="main.py",
+        target_platform="linux", protect_resources=False,
+    )
+    freezer.freeze(tmp_path, manifest)
+    assert not (tmp_path / "build" / "psx-compiled").exists()
+    assert "def View()" in (tmp_path / "main.py").read_text(encoding="utf-8")
+
+
+def test_source_exposure_guard_rejects_onefile_archive_data(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from PyInstaller.archive import readers
+    from velto_cli.adapters.freeze.source_exposure_guard import SourceExposureGuard
+    from velto_cli.domain.build import BundleMode
+    from velto_cli.domain.errors import QyroError
+
+    (tmp_path / "components").mkdir()
+    (tmp_path / "components" / "sidebar.py").write_text("print('secret')\n")
+    monkeypatch.setattr(
+        readers, "CArchiveReader",
+        lambda _: Mock(toc={"components/sidebar.py": object()}),
+    )
+    with pytest.raises(QyroError, match="plaintext application Python sources"):
+        SourceExposureGuard().verify(
+            project_root=tmp_path,
+            entry_point=tmp_path / "main.py",
+            output_dir=tmp_path / "dist",
+            executable_path=tmp_path / "dist" / "MyApp",
+            mode=BundleMode.ONEFILE,
+        )
