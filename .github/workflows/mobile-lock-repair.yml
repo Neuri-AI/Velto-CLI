@@ -5,6 +5,7 @@ on:
       - feature/mobile-freeze
     paths:
       - .github/workflows/mobile-lock-repair.yml
+      - pyproject.toml
   workflow_dispatch:
 
 permissions:
