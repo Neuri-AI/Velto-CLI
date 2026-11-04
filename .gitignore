@@ -2,12 +2,10 @@
 .pycache/
 __pycache__/
 .pytest_cache/
-settings/
 *.egg-info/
 dist/
 build/
 .venv
-
 *.pyc
 *.pyo
 *.pyd
@@ -15,5 +13,3 @@ build/
 *.env
 .env.*
 .DS_Store
-# Internal Qyro dependency is not yet published to the package index.
-poetry.lock
