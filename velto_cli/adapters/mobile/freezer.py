@@ -125,7 +125,7 @@ class MobileToolchainFreezer:
                 "Install velto-cli[mobile-pyside6] first."
             ) from exc
 
-        cache = Path.home() / ".cache" / "velto" / "mobile" / "pyside6" / "android" / arch / qt_version
+        cache = Path.home() / ".velto" / "mobile" / "pyside6" / "android" / arch / qt_version
         override = (request.wheel_pyside, request.wheel_shiboken)
         if any(override) and not all(override):
             raise ValueError(
