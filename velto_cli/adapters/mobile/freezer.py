@@ -180,18 +180,15 @@ class MobileToolchainFreezer:
                 [qtpip, "download", "PySide6", "--android", "--arch", arch],
                 cwd=str(commercial_cache),
             )
-            if status == 0:
-                downloaded = discover(commercial_cache)
-                if downloaded is not None:
-                    return downloaded
-                raise RuntimeError(
-                    "qtpip succeeded but did not supply matching Android "
-                    f"PySide6/Shiboken6 wheels for Qt {qt_version} ({arch}); "
-                    "refusing to silently switch the license edition."
-                )
-            # No valid commercial credentials (or inaccessible commercial
-            # repository): fall back to the freely distributed Qt wheels.
-            # This does not imply that commercial rights were verified.
+            # Some qtpip versions report a successful exit code even when
+            # their license check prints "Commercial License NOT found".
+            # The actual output artifacts are therefore the success signal.
+            downloaded = discover(commercial_cache)
+            if downloaded is not None:
+                return downloaded
+            # No complete commercial wheel pair: use the public release.
+            # A genuine commercial entitlement is never inferred from the
+            # presence of the qtpip executable or its exit status.
         return QtAndroidWheelArchive().resolve(qt_version, arch, public_cache)
 
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
