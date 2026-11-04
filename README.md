@@ -29,13 +29,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/neuri)
 
-> [!WARNING]
-> **Mobile support is experimental.** Buildozer packaging, the `[mobile]`
-> extra, Android/iOS targets, and Kivy mobile workflows are incomplete and may
-> change without notice.
->
-> The currently supported velto CLI workflow is desktop-only on Windows, macOS,
-> and Linux.
+> [!NOTE]
+> **Mobile freezing is in active development.** The Android/iOS commands are now
+> wired to mobile toolchain adapters. A working production application still
+> depends on target-compatible Python and Cinnamon/Rust builds, signing and
+> real device validation.
 
 ---
 
@@ -133,10 +131,9 @@ poetry add velto-cli
 
 ### Mobile toolchain installation
 
-> [!WARNING]
-> Mobile packaging is experimental and is not part of the supported production
-> workflow. Install this extra only if you are testing the Buildozer
-> integration.
+> [!NOTE]
+> Buildozer is currently an optional dependency for Android/Kivy. The other
+> mobile targets require their respective native toolchains and wheels.
 
 ```bash
 # Using pip
@@ -146,8 +143,7 @@ pip install "velto-cli[mobile]"
 poetry add velto-cli -E mobile
 ```
 
-The `[all]` extra includes experimental mobile dependencies and is not
-recommended for production use:
+The `[all]` extra includes mobile build dependencies:
 
 ```bash
 # Using pip
@@ -248,8 +244,7 @@ Notes:
 
 - `desktop` maps to the desktop template target.
 - If these flags are omitted, `velto init` uses the interactive wizard.
-- Mobile targets are experimental and are not part of the supported desktop
-  workflow.
+- Mobile targets require native toolchains, compatible wheels and device validation.
 
 Supported frameworks:
 
@@ -824,9 +819,9 @@ npm install -g create-dmg
 | **Kivy** | `KivyAdapter` | Cross-platform desktop interfaces; mobile packaging is being implemented. |
 | **Tkinter** | `TkinterAdapter` | Desktop utilities built on the Python standard library. |
 
-> [!WARNING]
-> All adapters are currently supported on desktop only. Mobile deployment is
-> experimental and is not part of the supported production workflow.
+> [!NOTE]
+> Desktop certification does not establish mobile compatibility. Android/iOS
+> runtime and artifact validation is part of the current implementation.
 
 ---
 
