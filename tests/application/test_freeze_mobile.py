@@ -461,7 +461,7 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     if declaration_exists:
         with (dist / "build.gradle").open("a") as stream:
             stream.write(
-                "implementation files('src/main/libs/Qt6Android.jar')\\n"
+                "implementation files('src/main/libs/Qt6Android.jar')\n"
             )
     source = project / "deployment" / "jar" / "PySide6" / "jar" / "Qt6Android.jar"
     source.parent.mkdir(parents=True)
