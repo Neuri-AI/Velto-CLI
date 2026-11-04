@@ -378,3 +378,22 @@ def test_unlicensed_qtpip_is_warning_with_live_progress(project, monkeypatch):
     assert "Checking commercial" in ui.status.call_args_list[0].args[0]
     assert "Downloading/verifying public" in ui.status.call_args_list[1].args[0]
     runner.run.assert_not_called()
+
+
+def test_pyside_build_reports_missing_javac_before_download(project, monkeypatch):
+    """Qt/Buildozer may swallow a missing javac failure and exit 0."""
+    (project / "pysidedeploy.spec").write_text("[app]\\n")
+    runner = Mock()
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.shutil.which",
+        lambda name: None if name == "javac" else "/usr/bin/" + name,
+    )
+    request = MobileFreezeRequest(
+        project_root=project, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="Demo",
+        version="1.0.0", init_only=False,
+    )
+    with pytest.raises(RuntimeError, match="requires a JDK with 'javac'"):
+        MobileToolchainFreezer(runner).freeze(request)
+    runner.run.assert_not_called()
+    runner.run_capture.assert_not_called()
