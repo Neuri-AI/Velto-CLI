@@ -428,7 +428,7 @@ def install_project(
     install_package(
         conda,
         environment,
-        "velto-core>=0.1.0,<0.2.0",
+        "velto-core>=0.1.0,<1.0.0",
         log_file,
     )
 
