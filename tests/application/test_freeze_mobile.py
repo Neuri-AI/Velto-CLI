@@ -126,44 +126,48 @@ def test_tool_failure_never_returns_artifact(project, monkeypatch):
         MobileToolchainFreezer(runner).freeze(request)
 
 
-def test_pyside_android_init_downloads_wheels_automatically(project, monkeypatch):
-    """No wheel flags: Qt wheel discovery/download belongs to infrastructure."""
+def test_pyside_android_init_resolves_public_archive_wheels(project, monkeypatch):
+    """Qt credentials/qtpip should not be involved in the normal workflow."""
     runner = Mock()
-
-    def execute(command, cwd):
-        if command[0] == "/usr/bin/qtpip":
-            cache = Path(cwd)
-            (cache / "PySide6-6.12.0-cp311-abi3-android_aarch64.whl").touch()
-            (cache / "shiboken6-6.12.0-cp311-abi3-android_aarch64.whl").touch()
-        if command[0] == "/usr/bin/pyside6-android-deploy":
-            (project / "pysidedeploy.spec").write_text("[app]\\n")
+    def run_qt(command, cwd):
+        (project / "pysidedeploy.spec").write_text("[app]\\n")
         return 0
+    runner.run.side_effect = run_qt
+    pyside = project / "pyside6-6.12.0-6.12.0-cp310-abi3-android_aarch64.whl"
+    shiboken = project / "shiboken6-6.12.0-6.12.0-cp310-abi3-android_aarch64.whl"
+    pyside.touch()
+    shiboken.touch()
 
-    runner.run.side_effect = execute
+    archive = Mock()
+    archive.resolve.return_value = (pyside, shiboken)
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive",
+        lambda: archive,
+    )
     monkeypatch.setattr("velto_cli.adapters.mobile.freezer.Path.home", lambda: project)
-    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.distribution_version",
-                        lambda name: "6.12.0")
-    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.shutil.which",
-                        lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.distribution_version",
+        lambda name: "6.12.0",
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.shutil.which",
+        lambda name: "/usr/bin/" + name,
+    )
     request = MobileFreezeRequest(
         project_root=project, target=MobileTarget.ANDROID,
         framework=MobileFramework.PYSIDE6, app_name="Demo",
         version="1.0.0", init_only=True,
     )
-    adapter = MobileToolchainFreezer(runner)
-    assert adapter.freeze(request) is None
-    assert runner.run.call_count == 2
-    assert runner.run.call_args_list[0].kwargs["cwd"].startswith(str(project / ".velto" / "mobile"))
-    assert runner.run.call_args_list[0].args[0] == [
-        "/usr/bin/qtpip", "download", "PySide6", "--android", "--arch", "aarch64"
-    ]
-    deploy = runner.run.call_args_list[1].args[0]
-    assert "--wheel-pyside" in deploy
-    assert "--wheel-shiboken" in deploy
-    runner.reset_mock()
-    with pytest.raises(FileExistsError):
-        adapter.freeze(request)
-    assert runner.run.call_count == 0
+    assert MobileToolchainFreezer(runner).freeze(request) is None
+    archive.resolve.assert_called_once_with(
+        "6.12.0", "aarch64",
+        project / ".velto" / "mobile" / "pyside6" / "android" / "aarch64" / "6.12.0",
+    )
+    runner.run.assert_called_once()
+    args = runner.run.call_args.args[0]
+    assert args[0] == "/usr/bin/pyside6-android-deploy"
+    assert args[args.index("--wheel-pyside") + 1] == str(pyside)
+    assert args[args.index("--wheel-shiboken") + 1] == str(shiboken)
 
 
 def test_pyside_android_init_passes_wheels_to_qt(project, monkeypatch):
