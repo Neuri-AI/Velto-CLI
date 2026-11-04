@@ -124,3 +124,65 @@ def test_tool_failure_never_returns_artifact(project, monkeypatch):
     )
     with pytest.raises(RuntimeError, match="exit 2"):
         MobileToolchainFreezer(runner).freeze(request)
+
+
+def test_pyside_android_init_requires_wheels_before_running_tool(project):
+    runner = Mock()
+    adapter = MobileToolchainFreezer(runner)
+    request = MobileFreezeRequest(
+        project_root=project, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="Demo",
+        version="1.0.0", init_only=True,
+    )
+    with pytest.raises(ValueError, match="--wheel-pyside and --wheel-shiboken"):
+        adapter.freeze(request)
+    runner.run.assert_not_called()
+
+
+def test_pyside_android_init_passes_wheels_to_qt(project, monkeypatch):
+    wheel_pyside = project / "PySide6-test.whl"
+    wheel_shiboken = project / "shiboken6-test.whl"
+    wheel_pyside.touch()
+    wheel_shiboken.touch()
+    runner = Mock()
+    runner.run.return_value = 0
+
+    def run_qt(command, cwd):
+        (project / "pysidedeploy.spec").write_text("[app]\\n")
+        return 0
+
+    runner.run.side_effect = run_qt
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.freezer.shutil.which",
+        lambda name: "/usr/bin/" + name,
+    )
+    request = MobileFreezeRequest(
+        project_root=project, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="Demo", version="1.0.0",
+        init_only=True, wheel_pyside=wheel_pyside, wheel_shiboken=wheel_shiboken,
+    )
+    assert MobileToolchainFreezer(runner).freeze(request) is None
+    args = runner.run.call_args.args[0]
+    assert args[:4] == ["/usr/bin/pyside6-android-deploy", "--init", "--name", "Demo"]
+    assert args[args.index("--wheel-pyside") + 1] == str(wheel_pyside)
+    assert args[args.index("--wheel-shiboken") + 1] == str(wheel_shiboken)
+
+
+def test_mobile_use_case_passes_validated_qt_wheel_paths(project):
+    settings = Mock()
+    settings.get_optional.side_effect = lambda key, default=None: {
+        "framework": "PySide6", "app_name": "Demo",
+    }.get(key, default)
+    pyside = project / "PySide6-android.whl"
+    shiboken = project / "shiboken6-android.whl"
+    pyside.touch()
+    shiboken.touch()
+    builder = Mock()
+    builder.freeze.return_value = None
+    FreezeMobileUseCase(builder, settings, Mock()).execute(
+        target=MobileTarget.ANDROID, project_root=project, init_only=True,
+        wheel_pyside=pyside.name, wheel_shiboken=shiboken.name,
+    )
+    request = builder.freeze.call_args.args[0]
+    assert request.wheel_pyside == pyside
+    assert request.wheel_shiboken == shiboken
