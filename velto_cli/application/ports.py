@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol, Sequence
 from velto_cli.domain.version import Version
 
-from velto_cli.domain.mobile import MobileTarget
+from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest
 from velto_cli.domain.project import (
     Binding,
     ProjectConfig,
@@ -349,26 +349,6 @@ class ApplicationSignerPort(Protocol):
 
 
 class MobileBuildPort(Protocol):
+    """Infrastructure contract for mobile freezing (Kivy / PySide6)."""
 
-    """
-    !EXPERIMENTAL: This module is just for defining mobile target specifications for Android and iOS
-
-    !#########################
-    ! AVOID USING THIS MODULE
-    !#########################
-
-
-    Builds a project for a supported mobile target.
-    """
-
-    def init_spec(
-        self,
-        target: MobileTarget,
-        config: ProjectConfig,
-    ) -> None: ...
-
-    def compile(
-        self,
-        target: MobileTarget,
-        debug: bool,
-    ) -> str: ...
+    def freeze(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None: ...
