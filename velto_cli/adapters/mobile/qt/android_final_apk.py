@@ -208,8 +208,14 @@ def finalize_copied_debug_apk(
 
         # Check the exact final payload before replacing the original.
         with ZipFile(signed) as check:
+            private_bytes = check.read(private_name)
+            if not private_bytes.startswith(bytes((0x1f, 0x8b))):
+                raise RuntimeError(
+                    "Signed APK private.tar is not gzip-compressed; "
+                    "Android will reject its application data."
+                )
             with tarfile.open(
-                fileobj=io.BytesIO(check.read(private_name)), mode="r:*"
+                fileobj=io.BytesIO(private_bytes), mode="r:*"
             ) as archive:
                 included = {
                     m.name.removeprefix("./").strip("/")
