@@ -90,13 +90,19 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
         location = _source_package(package)
         for item in sorted(location.rglob("*")):
             if (not item.is_file() or item.is_symlink()
-                    or item.suffix.lower() != ".py"
                     or any(p in _SKIP for p in item.relative_to(location).parts)):
                 continue
             rel = f"{package}/{item.relative_to(location).as_posix()}"
-            if rel in sources:
-                raise RuntimeError("Ambiguous Android Python source: " + rel)
-            sources[rel] = item
+            if item.suffix.lower() == ".py":
+                if rel in sources:
+                    raise RuntimeError("Ambiguous Android Python source: " + rel)
+                sources[rel] = item
+            elif item.suffix.lower() in (".so", ".dylib", ".pyd", ".dll"):
+                native[f"installed:{rel}"] = _sha_file(item)
+    keystore = Path.home() / ".android/debug.keystore"
+    native["debug-signing-key"] = (
+        _sha_file(keystore) if keystore.is_file() else "<not-created>"
+    )
     file_hashes = {name: _sha_file(path) for name, path in sorted(sources.items())}
     versions: dict[str, str] = {}
     for package in ("PySide6", "shiboken6", "buildozer", "python-for-android",
