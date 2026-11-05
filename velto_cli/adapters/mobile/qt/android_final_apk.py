@@ -69,29 +69,68 @@ def _debug_keystore() -> Path:
     return store
 
 
-def _amended_private_tar(data: bytes, additions: dict[str, Path]) -> bytes:
-    """Rebuild p4a's *gzip-compressed USTAR*, despite its private.tar name.
+def _missing_parent_dirs(archive: tarfile.TarFile) -> set[str]:
+    """Find directories required by archive members but not explicitly stored.
 
-    p4a uses GzipFile(..., 'wb') with tarfile.USTAR_FORMAT. A plain TAR is
-    readable by Python's tarfile yet rejected by Android's private-data
-    extraction. Reconstruct in the exact format, including when correcting
-    an APK that was previously signed with the broken plain-TAR payload.
+    p4a's Android extractor relies on directory entries in private.tar;
+    Python's tarfile extractor can create parents implicitly and therefore
+    does not reproduce this device-side failure.
     """
+    members = archive.getmembers()
+    existing = {
+        m.name.removeprefix("./").strip("/")
+        for m in members if m.isdir()
+    }
+    needed: set[str] = set()
+    for member in members:
+        name = member.name.removeprefix("./").strip("/")
+        components = name.split("/")
+        for depth in range(1, len(components)):
+            needed.add("/".join(components[:depth]))
+    return needed - existing
+
+
+def _amended_private_tar(data: bytes, additions: dict[str, Path]) -> bytes:
+    """Build p4a-compatible gzip USTAR with explicit parent directories."""
     buffer = io.BytesIO()
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as original:
+        members = original.getmembers()
         existing = {
             member.name.removeprefix("./").strip("/")
-            for member in original.getmembers() if member.isfile()
+            for member in members if member.isfile()
+        }
+        all_paths = [
+            m.name.removeprefix("./").strip("/")
+            for m in members
+        ] + list(additions)
+        required_dirs: set[str] = set()
+        for path in all_paths:
+            components = path.split("/")
+            for depth in range(1, len(components)):
+                required_dirs.add("/".join(components[:depth]))
+        existing_dirs = {
+            m.name.removeprefix("./").strip("/")
+            for m in members if m.isdir()
         }
         try:
             with GzipFile(fileobj=buffer, mode="wb", mtime=0) as compressed:
                 with tarfile.open(
                     fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT,
                 ) as new:
-                    for member in original:
+                    # Explicitly create missing directories *before* any
+                    # member that references them, as p4a's make_tar does.
+                    for directory in sorted(
+                        required_dirs - existing_dirs,
+                        key=lambda item: (item.count("/"), item),
+                    ):
+                        info = tarfile.TarInfo(directory)
+                        info.type = tarfile.DIRTYPE
+                        info.mode = 0o755
+                        info.uid = info.gid = 0
+                        info.mtime = 0
+                        new.addfile(info)
+                    for member in members:
                         if member.type in (tarfile.XHDTYPE, tarfile.XGLTYPE):
-                            # PAX headers from a broken archive must not be
-                            # propagated into Android's USTAR payload.
                             continue
                         member.pax_headers = {}
                         stream = original.extractfile(member) if member.isfile() else None
@@ -108,8 +147,8 @@ def _amended_private_tar(data: bytes, additions: dict[str, Path]) -> bytes:
                             new.addfile(info, stream)
         except ValueError as exc:
             raise RuntimeError(
-                "Cannot encode the Android app data as gzip USTAR. "
-                "Check for unsupported long paths or metadata."
+                "Cannot encode Android application data as gzip USTAR; "
+                "check archive metadata and path lengths."
             ) from exc
     return buffer.getvalue()
 
@@ -141,6 +180,7 @@ def finalize_copied_debug_apk(
                 m.name.removeprefix("./").strip("/")
                 for m in tar.getmembers() if m.isfile()
             }
+            missing_parents = _missing_parent_dirs(tar)
         missing = {name: source for name, source in resources.items() if name not in present}
         # Android resources may be under different density-specific folders.
         icons = [
@@ -155,7 +195,7 @@ def finalize_copied_debug_apk(
         # Repair already-modified APKs whose content was rewritten as plain
         # TAR, including when all resources and icons are already present.
         private_needs_repair = not original_private.startswith(bytes((0x1f, 0x8b)))
-        if not missing and not icon_changed and not private_needs_repair:
+        if not missing and not icon_changed and not private_needs_repair and not missing_parents:
             return apk, (), False
 
         if icon is not None and not icons:
