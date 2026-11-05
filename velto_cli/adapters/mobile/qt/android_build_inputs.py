@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
-import shutil
 import tempfile
 from typing import Iterator
 
@@ -31,31 +30,34 @@ def isolate_previous_android_build_outputs(root: Path) -> Iterator[None]:
 
     # Keep the temporary source tree outside of root so Buildozer's
     # recursive source walker cannot pick it up again.
-    with tempfile.TemporaryDirectory(
+    temporary = Path(tempfile.mkdtemp(
         prefix=".velto-android-build-", dir=root.parent,
-    ) as temporary:
-        saved = Path(temporary) / "build"
+    ))
+    saved = temporary / "build"
+    try:
         prior.rename(saved)
         try:
             yield
         finally:
-            # Normal PySide6 deployment places the intermediate APK at the
-            # project root. If an external tool recreated build/, do not
-            # destroy either version on restoration.
+            # Preserve the previous output even when a third-party builder
+            # unexpectedly creates its own build/ tree.
             if prior.exists():
                 if not prior.is_dir() or prior.is_symlink():
                     raise RuntimeError(
-                        "Android deploy recreated build/ as a non-directory; "
-                        f"saved output remains in {saved}"
+                        "Android deploy recreated build/ as a non-directory. "
+                        f"Original build outputs remain at {saved}"
                     )
-                for item in saved.iterdir():
+                for item in tuple(saved.iterdir()):
                     target = prior / item.name
                     if target.exists():
                         raise RuntimeError(
-                            "Android deploy created conflicting build output "
-                            f"{target}. Previous build remains in {saved}"
+                            "Android deploy recreated a conflicting output "
+                            f"{target}. Original outputs remain at {saved}"
                         )
                     item.rename(target)
                 saved.rmdir()
             else:
                 saved.rename(prior)
+    finally:
+        if not saved.exists():
+            temporary.rmdir()
