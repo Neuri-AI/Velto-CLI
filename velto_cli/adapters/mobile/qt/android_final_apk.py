@@ -7,6 +7,7 @@ publish an APK that has been changed without Android signature verification.
 from __future__ import annotations
 
 import io
+from gzip import GzipFile
 import os
 from pathlib import Path
 import shutil
@@ -69,26 +70,47 @@ def _debug_keystore() -> Path:
 
 
 def _amended_private_tar(data: bytes, additions: dict[str, Path]) -> bytes:
-    if not additions:
-        return data
+    """Rebuild p4a's *gzip-compressed USTAR*, despite its private.tar name.
+
+    p4a uses GzipFile(..., 'wb') with tarfile.USTAR_FORMAT. A plain TAR is
+    readable by Python's tarfile yet rejected by Android's private-data
+    extraction. Reconstruct in the exact format, including when correcting
+    an APK that was previously signed with the broken plain-TAR payload.
+    """
     buffer = io.BytesIO()
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as original:
         existing = {
             member.name.removeprefix("./").strip("/")
             for member in original.getmembers() if member.isfile()
         }
-        with tarfile.open(fileobj=buffer, mode="w") as new:
-            for member in original:
-                stream = original.extractfile(member) if member.isfile() else None
-                new.addfile(member, stream)
-            for name, path in sorted(additions.items()):
-                if name in existing:
-                    continue
-                info = tarfile.TarInfo(name)
-                info.size = path.stat().st_size
-                info.mode = 0o644
-                with path.open("rb") as stream:
-                    new.addfile(info, stream)
+        try:
+            with GzipFile(fileobj=buffer, mode="wb", mtime=0) as compressed:
+                with tarfile.open(
+                    fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT,
+                ) as new:
+                    for member in original:
+                        if member.type in (tarfile.XHDTYPE, tarfile.XGLTYPE):
+                            # PAX headers from a broken archive must not be
+                            # propagated into Android's USTAR payload.
+                            continue
+                        member.pax_headers = {}
+                        stream = original.extractfile(member) if member.isfile() else None
+                        new.addfile(member, stream)
+                    for name, path in sorted(additions.items()):
+                        if name in existing:
+                            continue
+                        info = tarfile.TarInfo(name)
+                        info.size = path.stat().st_size
+                        info.mode = 0o644
+                        info.uid = info.gid = 0
+                        info.mtime = 0
+                        with path.open("rb") as stream:
+                            new.addfile(info, stream)
+        except ValueError as exc:
+            raise RuntimeError(
+                "Cannot encode the Android app data as gzip USTAR. "
+                "Check for unsupported long paths or metadata."
+            ) from exc
     return buffer.getvalue()
 
 
@@ -129,7 +151,11 @@ def finalize_copied_debug_apk(
         ]
         icon_bytes = icon.read_bytes() if icon is not None else None
         icon_changed = any(source.read(name) != icon_bytes for name in icons)
-        if not missing and not icon_changed:
+        # p4a expects gzip+USTAR even though the filename is private.tar.
+        # Repair already-modified APKs whose content was rewritten as plain
+        # TAR, including when all resources and icons are already present.
+        private_needs_repair = not original_private.startswith(b"\\x1f\\x8b")
+        if not missing and not icon_changed and not private_needs_repair:
             return apk, (), False
 
         if icon is not None and not icons:
