@@ -478,7 +478,16 @@ class QtAndroidBuilder:
         # builds, never an alternate public API. It runs BEFORE transient
         # framework packages are staged into the project tree.
         if enabled and request.debug and not request.clean:
-            quick = try_incremental_build(request.project_root, request)
+            try:
+                quick = try_incremental_build(request.project_root, request)
+            except Exception as exc:
+                # Corrupt cache or unpatchable debug APK must not block a
+                # normal PySide6 build or leave partially written artifacts.
+                self._warning(
+                    "Android incremental reuse unavailable; using full "
+                    f"deployment: {exc}"
+                )
+                quick = None
             if quick is not None:
                 self._notice("Reused Android runtime; updated signed APK.")
                 return MobileBuildArtifact(
