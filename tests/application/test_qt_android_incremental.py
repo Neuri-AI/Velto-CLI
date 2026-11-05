@@ -258,3 +258,17 @@ def test_release_apk_never_seeds_incremental_cache(project):
     shutil.copy2(debug_apk, release)
     inc.record_full_build(root, release, _request())
     assert inc.try_incremental_build(root, _request()) is None
+
+
+def test_extracted_root_apk_is_not_scanned_as_application_source(
+        project):
+    root, apk = project
+    extracted = root / apk.stem / "assets/private/velto"
+    extracted.mkdir(parents=True)
+    (extracted / "__init__.py").write_text("unreadable archive contents")
+    inc.record_full_build(root, apk, _request())
+    # A discarded/extracted inspection tree must not invalidate the cache
+    # or introduce its private Python modules into the sources manifest.
+    sources, hashes, native = inc._scan(root)
+    assert not any(name.startswith(apk.stem + "/") for name in hashes)
+    assert inc.try_incremental_build(root, _request()) is not None
