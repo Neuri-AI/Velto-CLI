@@ -83,7 +83,9 @@ def test_kivy_build_uses_injected_runner(project, monkeypatch):
         version="1.0.0", debug=True,
     )
     result = adapter.freeze(request)
-    assert result.path == apk
+    assert result.path == project / "build/android/kivy/demo.apk"
+    assert result.path.read_bytes() == b"apk"
+    assert apk.is_file()
     assert result.kind == "apk"
     runner.run.assert_called_once_with(
         ["/usr/bin/buildozer", "android", "debug"], cwd=str(project)
@@ -498,7 +500,9 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
         wheel_pyside=wheels[0], wheel_shiboken=wheels[1],
     )
     artifact = MobileToolchainFreezer(runner).freeze(request)
-    assert artifact.path == apk
+    assert artifact.path == project / "build/android/qt/app-debug.apk"
+    assert artifact.path.read_bytes() == b"apk"
+    assert apk.is_file()
     assert (libs / "Qt6Android.jar").read_bytes() == source.read_bytes()
     content = (dist / "build.gradle").read_text()
     assert "implementation files('src/main/libs/Qt6Android.jar')" in content
