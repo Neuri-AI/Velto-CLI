@@ -235,9 +235,14 @@ def _store(cache: Path, apk: Path, hashes: dict[str, str], native: str) -> None:
         os.replace(Path(tmp) / "manifest.json", cache / "manifest.json")
 
 
+def _is_debug_apk(apk: Path) -> bool:
+    """Never reuse Android release artifacts with the debug signing workflow."""
+    return apk.suffix.lower() == ".apk" and "debug" in apk.stem.lower()
+
+
 def record_full_build(root: Path, apk: Path, request: Any) -> None:
-    """Seed the fast path using a successfully produced signed debug APK."""
-    if not apk.is_file() or apk.suffix.lower() != ".apk":
+    """Seed the fast path only from a successfully produced debug APK."""
+    if not apk.is_file() or not _is_debug_apk(apk):
         return
     sources, hashes, native = _scan(root)
     contents = _archive_files(apk)
@@ -264,6 +269,8 @@ def try_incremental_build(root: Path, request: Any) -> Path | None:
     meta = _cache_manifest(cache)
     previous = cache / "base.apk"
     if meta is None or not previous.is_file():
+        return None
+    if not _is_debug_apk(Path(meta["apk_name"])):
         return None
     if _sha_file(previous) != meta["apk_sha256"]:
         return None
