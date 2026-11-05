@@ -333,7 +333,12 @@ def test_qtpip_zero_exit_without_wheels_uses_public_archive(project, monkeypatch
     assert MobileToolchainFreezer(runner)._qt_android_wheels(request) == (
         pyside, shiboken
     )
-    runner.run.assert_called_once()
+    runner.run.assert_not_called()
+    runner.run_capture.assert_called_once_with(
+        ["/usr/bin/qtpip", "download", "PySide6", "--android", "--arch", "aarch64"],
+        cwd=str(project / ".velto" / "mobile" / "pyside6" / "android"
+                / "aarch64" / "6.12.0" / "commercial"),
+    )
     archive.resolve.assert_called_once_with(
         "6.12.0", "aarch64",
         project / ".velto" / "mobile" / "pyside6" / "android"
