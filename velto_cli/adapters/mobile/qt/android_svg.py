@@ -42,11 +42,15 @@ def assert_android_svg_wheel(wheel: Path) -> None:
 
 
 def configure_android_svg_spec(spec: Path) -> bool:
-    """Add Svg module and imageformats plugin to existing deploy spec.
+    """Add Svg module and imageformats_qsvg plugin to existing deploy spec.
 
     Preserve the developer's other module/plugin choices, ensure repeated
     builds are idempotent and never modify unrelated project configuration.
     """
+    # Recover from the previously emitted invalid value. Qt's Android
+    # recipe generator splits every plugin at its first underscore; the bare
+    # category "imageformats" triggers ValueError before the build begins.
+    # Never leave that invalid value in an existing project spec.
     original = spec.read_text(encoding="utf-8")
     parser = configparser.ConfigParser(interpolation=None)
     parser.optionxform = str
@@ -54,7 +58,7 @@ def configure_android_svg_spec(spec: Path) -> bool:
 
     updates = {
         ("qt", "modules"): "Svg",
-        ("android", "plugins"): "imageformats",
+        ("android", "plugins"): "imageformats_qsvg",
     }
     changed = False
     for (section, field), required in updates.items():
@@ -65,6 +69,11 @@ def configure_android_svg_spec(spec: Path) -> bool:
                 section, field, fallback="",
             ).split(",") if item.strip()
         ]
+        if section == "android":
+            valid = [item for item in existing if item.lower() != "imageformats"]
+            if len(valid) != len(existing):
+                changed = True
+            existing = valid
         if required.lower() not in {item.lower().removeprefix("qt") if section == "qt" else item.lower() for item in existing}:
             existing.append(required)
             parser.set(section, field, ",".join(existing))
@@ -111,5 +120,5 @@ def verify_android_svg_apk(artifact: Path) -> None:
         "Android APK lacks Qt's SVG imageformats plugin (qsvg). "
         "The selected PySide6 wheel includes SVG, but the Qt Android deploy "
         "did not package it. Check [qt] modules=Svg and "
-        "[android] plugins=imageformats in pysidedeploy.spec."
+        "[android] plugins=imageformats_qsvg in pysidedeploy.spec."
     )
