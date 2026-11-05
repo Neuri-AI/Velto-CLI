@@ -136,4 +136,4 @@ def test_repair_previously_modified_plain_tar_without_new_assets(tmp_path, monke
     assert android_final_apk.finalize_copied_debug_apk(
         apk, tmp_path, icon=None,
     ) == (apk, (), False)
-    assert commands == ()
+    assert commands == []
