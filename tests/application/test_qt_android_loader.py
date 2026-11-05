@@ -17,7 +17,7 @@ def generated_distribution(tmp_path: Path, *, lib_name="main", entry=None):
         / "dists/AndroidAppQt"
     )
     resources = dist / "src/main/res/values/libs.xml"
-    resources.parent.mkdir(parents=True)
+    resources.parent.mkdir(parents=True, exist_ok=True)
     manifest = dist / "src/main/AndroidManifest.xml"
     manifest.write_text(
         '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
