@@ -10,6 +10,7 @@ from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 from velto_cli.adapters.mobile.qt.android_sources import (
     uses_velto, staged_velto_sources, verify_velto_apk_sources,
     complete_qt_android_private_assets, verify_qt_android_runtime_assets,
+    _gradle_directory, _gradle_command,
 )
 from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest, MobileTarget
 
@@ -569,21 +570,24 @@ class QtAndroidBuilder:
                     "in the Qt Android package."
                 )
             elif icon_changed:
-                # Assets already complete: Gradle must still package the new
-                # launcher icon. Never modify a signed APK in place.
-                distribution = next(
-                    p for p in artifact.parents if (p / "gradlew").is_file()
-                )
+                # Assets already complete: rebuild only to apply the icon.
+                distribution = _gradle_directory(artifact)
+                if distribution is None:
+                    raise RuntimeError(
+                        f"Missing Qt Android Gradle distribution for {artifact}"
+                    )
                 self._run([
-                    str(distribution / "gradlew"),
+                    _gradle_command(distribution),
                     "assembleDebug" if request.debug else "bundleRelease",
                 ], distribution)
         elif icon_changed:
-            distribution = next(
-                p for p in artifact.parents if (p / "gradlew").is_file()
-            )
+            distribution = _gradle_directory(artifact)
+            if distribution is None:
+                raise RuntimeError(
+                    f"Missing Qt Android Gradle distribution for {artifact}"
+                )
             self._run([
-                str(distribution / "gradlew"),
+                _gradle_command(distribution),
                 "assembleDebug" if request.debug else "bundleRelease",
             ], distribution)
         if icon_changed or (enabled and added):
