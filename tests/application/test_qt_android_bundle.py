@@ -73,9 +73,35 @@ def test_gradle_apk_is_preferred_over_project_copy(tmp_path):
     assert selected == canonical
 
 
-def test_gradle_artifact_selection_preserves_unrelated_projects(tmp_path):
+def test_gradle_artifact_selection_rejects_missing_canonical_build(tmp_path):
     source = tmp_path / "app.apk"
     source.write_bytes(b"apk")
+    with pytest.raises(RuntimeError, match="Gradle artifact not found"):
+        MobileToolchainFreezer._qt_gradle_artifact(
+            tmp_path, source, debug=True
+        )
+
+
+def test_gradle_debug_apk_selected_when_cli_debug_is_false(tmp_path):
+    project_copy = tmp_path / "AndroidAppQt-0.1-arm64-v8a-debug.apk"
+    project_copy.write_bytes(b"app copy")
+    canonical = android_distribution(
+        tmp_path, packages=("velto", "qyro", "psx")
+    )
     assert MobileToolchainFreezer._qt_gradle_artifact(
-        tmp_path, source, debug=True
-    ) == source
+        tmp_path, project_copy, debug=False
+    ) == canonical
+
+
+def test_gradle_release_bundle_selection(tmp_path):
+    project_copy = tmp_path / "Demo-release.aab"
+    project_copy.write_bytes(b"copy")
+    canonical = (
+        tmp_path / ".buildozer/android/platform/build-arm64-v8a"
+        / "dists/Demo/build/outputs/bundle/release/Demo-release.aab"
+    )
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(b"original")
+    assert MobileToolchainFreezer._qt_gradle_artifact(
+        tmp_path, project_copy, debug=False
+    ) == canonical
