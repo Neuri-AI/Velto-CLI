@@ -51,3 +51,16 @@ poetry run pytest \
 After building, confirm that the APK includes the private source tarball and
 launch it on an Android device. Inspect Python Traceback messages in Logcat
 before declaring Android runtime support complete.
+
+## Published Android artifacts
+
+`velto build --target android` publishes finished artifacts to a stable
+directory under the application project:
+
+- Qt/PySide6: `build/android/qt/<artifact>.apk` or `.aab`
+- Kivy: `build/android/kivy/<artifact>.apk` or `.aab`
+
+These are copies of the verified builder outputs. Buildozer and Gradle keep
+their original internal artifacts for incremental compilation and debugging.
+The CLI reports the published path, not the internal distribution path.
+Repeated builds atomically replace the published file with the same name.
