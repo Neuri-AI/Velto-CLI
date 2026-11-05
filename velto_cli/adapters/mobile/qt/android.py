@@ -437,17 +437,29 @@ class QtAndroidBuilder:
         give it a versioned name. The Gradle distribution is authoritative
         for QtLoader repairs and for identifying the built Python payload.
         """
+        # The Qt wrapper can emit a debug APK even if the Velto CLI was
+        # invoked without --debug. Choose the actual artifact kind, not the
+        # requested flag, and never silently fall back to the root copy when
+        # a Gradle build is expected.
         base = root / ".buildozer/android/platform"
-        if debug:
-            patterns = ("build-*/dists/*/build/outputs/apk/debug/*.apk",)
-        else:
-            patterns = ("build-*/dists/*/build/outputs/bundle/release/*.aab",)
+        patterns = {
+            ".apk": ("build-*/dists/*/build/outputs/apk/debug/*.apk",
+                     "build-*/dists/*/build/outputs/apk/release/*.apk"),
+            ".aab": ("build-*/dists/*/build/outputs/bundle/release/*.aab",),
+        }
+        desired = artifact.suffix.lower()
+        search = patterns.get(desired, (*patterns[".apk"], *patterns[".aab"]))
         candidates = [
-            item for pattern in patterns for item in base.glob(pattern)
+            item for pattern in search for item in base.glob(pattern)
             if item.is_file()
         ]
         if not candidates:
-            return artifact
+            raise RuntimeError(
+                "Qt Android Gradle artifact not found under "
+                f"{base}/build-*/dists/*/build/outputs/. "
+                f"Qt deployment reported {artifact}; cannot safely repair "
+                "or validate a copied APK outside its Gradle distribution."
+            )
         return max(candidates, key=lambda item: item.stat().st_mtime_ns)
 
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
