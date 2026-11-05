@@ -152,3 +152,74 @@ def test_private_marker_refuses_ambiguous_compiled_resource():
         final.replace_android_private_version(
             marker + b" " + b"c" * 40, "d" * 40
         )
+
+
+def test_qt_builder_uses_cache_before_invoking_android_toolchain(
+        project, monkeypatch):
+    from unittest.mock import Mock
+    from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
+    from velto_cli.domain.mobile import MobileFreezeRequest
+
+    root, apk = project
+    (root / "main.py").write_text("from velto import VeltoContext")
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.try_incremental_build",
+        lambda current, request: apk
+    )
+    toolchain = MobileToolchainFreezer(Mock())
+    request = MobileFreezeRequest(
+        project_root=root, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="AndroidAppQt",
+        version="0.1.0", debug=True,
+    )
+    result = toolchain.freeze(request)
+    assert result.path == apk
+    toolchain._runner.run.assert_not_called()
+
+
+def test_clean_forces_full_deployment_instead_of_incremental(
+        project, monkeypatch):
+    from contextlib import contextmanager
+    from unittest.mock import Mock
+    from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
+    from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest
+
+    root, apk = project
+    (root / "main.py").write_text("from velto import VeltoContext")
+    called = []
+    def fast(*args):
+        called.append("fast")
+        return apk
+
+    @contextmanager
+    def stage(*args, **kwargs):
+        yield True
+
+    def full(self, request):
+        called.append("full")
+        return MobileBuildArtifact(
+            apk, MobileTarget.ANDROID, MobileFramework.PYSIDE6, "apk"
+        )
+
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.try_incremental_build", fast
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.staged_velto_sources", stage
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.QtAndroidBuilder._pyside_android_impl",
+        full,
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.record_full_build",
+        lambda *args: None,
+    )
+    request = MobileFreezeRequest(
+        project_root=root, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="AndroidAppQt",
+        version="0.1.0", debug=True, clean=True,
+    )
+    result = MobileToolchainFreezer(Mock()).freeze(request)
+    assert result.path == apk
+    assert called == ["full"]
