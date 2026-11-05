@@ -177,7 +177,7 @@ def _amended_private_tar(
 # surrounding binary XML/string-pool offsets. Reject ambiguous tables.
 _HEX40 = re.compile(rb"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
 _UTF16_HEX40 = re.compile(
-    rb"(?<![0-9a-f]\\x00)(?:[0-9a-f]\\x00){40}(?![0-9a-f]\\x00)"
+    rb"(?<![0-9a-f]\x00)(?:[0-9a-f]\x00){40}(?![0-9a-f]\x00)"
 )
 
 
