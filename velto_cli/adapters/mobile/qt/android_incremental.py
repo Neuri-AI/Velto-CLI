@@ -20,7 +20,9 @@ import io
 import tarfile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
-from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
+from velto_cli.adapters.mobile.qt.android_final_apk import (
+    finalize_copied_debug_apk, android_private_version_marker,
+)
 from velto_cli.adapters.mobile.qt.android_sources import (
     PACKAGES, _project_runtime_assets, _source_package,
     verify_qt_android_runtime_assets, verify_velto_apk_sources,
@@ -207,6 +209,13 @@ def record_full_build(root: Path, apk: Path, request: Any) -> None:
     if not set(sources).issubset(contents):
         # Do not trust an artifact that cannot represent the next source diff.
         return
+    with ZipFile(apk) as signed:
+        if ("resources.arsc" not in signed.namelist()
+                or android_private_version_marker(
+                    signed.read("resources.arsc")) is None):
+            # Refuse incremental packaging unless p4a extraction invalidation
+            # can be updated safely in the compiled Android resources.
+            return
     _store(_cache_root(root), apk, hashes, native + _request_key(request))
 
 
@@ -240,6 +249,20 @@ def try_incremental_build(root: Path, request: Any) -> Path | None:
     packaged = _archive_files(previous)
     if (set(old) - packaged) or (additions & packaged):
         return None
+    with ZipFile(previous) as apk:
+        if "resources.arsc" not in apk.namelist():
+            return None
+        old_marker = android_private_version_marker(
+            apk.read("resources.arsc")
+        )
+        if old_marker is None:
+            return None
+    # Compile-time p4a private_version must change when the private tarball
+    # changes. Otherwise Android keeps the *previous* extracted main.py and
+    # resources despite successfully installing the newly signed APK.
+    marker = hashlib.sha1(
+        old_marker[0] + json.dumps(hashes, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
     with tempfile.TemporaryDirectory(prefix=".velto-incremental-") as work:
         artifact = Path(work) / meta["apk_name"]
@@ -250,6 +273,7 @@ def try_incremental_build(root: Path, request: Any) -> Path | None:
                 artifact, root, icon=icon.source if icon else None,
                 updates={name: sources[name] for name in changed},
                 removals=frozenset(deletions),
+                private_version=marker,
             )
         # Ensure the final artifact includes the *actual source content*,
         # not just filenames, and certify the existing Qt plugin binaries.
