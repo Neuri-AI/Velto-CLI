@@ -1,4 +1,4 @@
-"""Keep generated build outputs out of Buildozer's application source scan."""
+"""Keep generated APK inspection and build outputs out of Android source scans."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -7,57 +7,76 @@ import tempfile
 from typing import Iterator
 
 
+def android_root_inspection_dirs(root: Path) -> tuple[Path, ...]:
+    """Only recognize directories paired with a root-level .apk/.aab.
+
+    Never recursively inspect arbitrary directories: extracted APK trees may
+    contain unreadable members and are not trusted as project source.
+    """
+    return tuple(sorted(
+        (entry for entry in root.iterdir()
+         if entry.is_dir()
+         and not entry.is_symlink()
+         and (
+             (root / (entry.name + ".apk")).is_file()
+             or (root / (entry.name + ".aab")).is_file()
+         )),
+        key=lambda path: path.name,
+    ))
+
+
 @contextmanager
 def isolate_previous_android_build_outputs(root: Path) -> Iterator[None]:
-    """Temporarily move build/ outside the project before Android deploy.
+    """Hide generated build/ and root APK extraction folders during deploy.
 
-    PySide6 regenerates buildozer.spec, so editing it beforehand is not a
-    reliable way to exclude build/. Buildozer otherwise recursively copies
-    old APK inspection directories, including unreadable device-extracted
-    files, into .buildozer/android/app.
-
-    Move rather than delete. Preserve all old outputs on both successful
-    builds and failures. The returned APK is published *after* this context.
+    PySide6 scans every Python file in the project even if Buildozer would
+    subsequently exclude it. It can hit unreadable Python files extracted
+    from APK archives in root/<apk-stem>/assets/private. Move those and build/
+    outside the project without reading their contents, restore on success
+    and failure, and never follow symlinks.
     """
-    prior = root / "build"
-    if not prior.exists():
+    candidates = [root / "build", *android_root_inspection_dirs(root)]
+    candidates = [path for path in candidates if path.exists() or path.is_symlink()]
+    if not candidates:
         yield
         return
-    if not prior.is_dir() or prior.is_symlink():
-        raise RuntimeError(
-            f"Cannot safely isolate Android build output: {prior}"
-        )
-
-    # Keep the temporary source tree outside of root so Buildozer's
-    # recursive source walker cannot pick it up again.
+    for path in candidates:
+        if not path.is_dir() or path.is_symlink():
+            raise RuntimeError(
+                f"Cannot safely isolate Android build output: {path}"
+            )
     temporary = Path(tempfile.mkdtemp(
         prefix=".velto-android-build-", dir=root.parent,
     ))
-    saved = temporary / "build"
+    moved: list[tuple[Path, Path]] = []
     try:
-        prior.rename(saved)
-        try:
-            yield
-        finally:
-            # Preserve the previous output even when a third-party builder
-            # unexpectedly creates its own build/ tree.
-            if prior.exists():
-                if not prior.is_dir() or prior.is_symlink():
+        for index, original in enumerate(candidates):
+            saved = temporary / f"saved-{index}"
+            original.rename(saved)
+            moved.append((original, saved))
+        yield
+    finally:
+        # Restore even when the deploy process raises. Keep original data
+        # intact if a tool recreated its destination.
+        for original, saved in reversed(moved):
+            if not saved.exists():
+                continue
+            if original.exists() or original.is_symlink():
+                if not original.is_dir() or original.is_symlink():
                     raise RuntimeError(
-                        "Android deploy recreated build/ as a non-directory. "
-                        f"Original build outputs remain at {saved}"
+                        "Android deploy recreated a non-directory output at "
+                        f"{original}. Preserved original at {saved}"
                     )
-                for item in tuple(saved.iterdir()):
-                    target = prior / item.name
-                    if target.exists():
+                for child in tuple(saved.iterdir()):
+                    target = original / child.name
+                    if target.exists() or target.is_symlink():
                         raise RuntimeError(
-                            "Android deploy recreated a conflicting output "
-                            f"{target}. Original outputs remain at {saved}"
+                            "Android deploy recreated conflicting output "
+                            f"{target}. Preserved original at {saved}"
                         )
-                    item.rename(target)
+                    child.rename(target)
                 saved.rmdir()
             else:
-                saved.rename(prior)
-    finally:
-        if not saved.exists():
+                saved.rename(original)
+        if not any(temporary.iterdir()):
             temporary.rmdir()
