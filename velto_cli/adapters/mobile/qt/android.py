@@ -9,6 +9,7 @@ from velto_cli.adapters.mobile.common.android_icons import select_android_projec
 from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
 from velto_cli.adapters.mobile.qt.android_svg import (
     project_uses_svg, assert_android_svg_wheel, configure_android_svg_spec,
+    verify_android_svg_apk,
 )
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 from velto_cli.adapters.mobile.qt.android_sources import (
@@ -623,6 +624,8 @@ class QtAndroidBuilder:
         )
         if enabled:
             verify_qt_android_runtime_assets(artifact, root)
+        if svg_required:
+            verify_android_svg_apk(artifact)
         published = self._publish_android_artifact(
             artifact, root, backend="qt"
         )
