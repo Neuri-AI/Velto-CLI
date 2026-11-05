@@ -40,6 +40,7 @@ class MobileFreezeRequest:
     entry_point: str = "main.py"
     debug: bool = False
     init_only: bool = False
+    clean: bool = False
     wheel_pyside: Path | None = None
     wheel_shiboken: Path | None = None
 
