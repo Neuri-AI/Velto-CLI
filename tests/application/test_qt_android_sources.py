@@ -62,3 +62,41 @@ def test_existing_project_modules_are_not_overwritten(tmp_path, monkeypatch):
 def test_no_staging_for_other_frameworks(tmp_path):
     with android_sources.staged_velto_sources(tmp_path, enabled=False):
         assert not (tmp_path / "psx").exists()
+
+
+def test_pyside_build_stages_velto_around_deployment(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
+    from velto_cli.domain.mobile import (
+        MobileFramework, MobileFreezeRequest, MobileTarget,
+    )
+
+    (tmp_path / "main.py").write_text("from velto import VeltoContext\\n")
+    events = []
+
+    @contextmanager
+    def fake_staging(root, *, enabled):
+        events.append(("enter", root, enabled))
+        yield enabled
+        events.append(("exit", root, enabled))
+
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.staged_velto_sources",
+        fake_staging,
+    )
+
+    def fake_deploy(self, request):
+        assert events == [("enter", tmp_path, True)]
+        return "artifact"
+
+    monkeypatch.setattr(MobileToolchainFreezer, "_pyside_android_impl", fake_deploy)
+    request = MobileFreezeRequest(
+        project_root=tmp_path, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6,
+        app_name="Demo", version="1.0", entry_point="main.py",
+    )
+    assert MobileToolchainFreezer(None)._pyside_android(request) == "artifact"
+    assert events == [
+        ("enter", tmp_path, True),
+        ("exit", tmp_path, True),
+    ]
