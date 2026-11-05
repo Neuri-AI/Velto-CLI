@@ -2,6 +2,7 @@
 import shutil
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
+import xml.etree.ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
@@ -191,6 +192,80 @@ class QtAndroidBuilder:
             return True
         return False
 
+    def _repair_qt_android_loader(self, artifact: Path, *, debug: bool) -> bool:
+        """Repair the generated QtLoader library list when it omits 'main'.
+
+        PySide6's Android deploy may emit arm64-v8a;lib_arm64-v8a.so in
+        load_local_libs even though the AndroidManifest declares lib_name=main
+        and the packaged library is libmain_arm64-v8a.so. Restrict the fix to
+        that proven mismatch in the artifact's own Gradle distribution.
+        """
+        distribution = next(
+            (parent for parent in artifact.parents if parent.parent.name == "dists"),
+            None,
+        )
+        if distribution is None:
+            return False
+        manifest = distribution / "src" / "main" / "AndroidManifest.xml"
+        resources = distribution / "src" / "main" / "res" / "values" / "libs.xml"
+        if not manifest.is_file() or not resources.is_file():
+            return False
+
+        try:
+            manifest_root = ET.parse(manifest).getroot()
+            android_ns = "{http://schemas.android.com/apk/res/android}"
+            library_names = [
+                element.get(android_ns + "value")
+                for element in manifest_root.iter("meta-data")
+                if element.get(android_ns + "name") == "android.app.lib_name"
+            ]
+            if library_names != ["main"]:
+                return False
+
+            tree = ET.parse(resources)
+            loader_arrays = [
+                element for element in tree.getroot().findall("array")
+                if element.get("name") == "load_local_libs"
+            ]
+            if len(loader_arrays) != 1:
+                return False
+            items = loader_arrays[0].findall("item")
+        except ET.ParseError as exc:
+            raise RuntimeError(
+                f"Cannot parse Qt Android loader metadata: {exc}"
+            ) from exc
+
+        wrong = "arm64-v8a;lib_arm64-v8a.so"
+        correct = "arm64-v8a;libmain_arm64-v8a.so"
+        matches = [item for item in items if (item.text or "").strip() == wrong]
+        if not matches:
+            return False
+        if len(matches) != 1 or any(
+            (item.text or "").strip() == correct for item in items
+        ):
+            raise RuntimeError(
+                f"Ambiguous QtLoader main library entries in {resources}"
+            )
+        native_lib = distribution / "libs" / "arm64-v8a" / "libmain_arm64-v8a.so"
+        if not native_lib.is_file():
+            raise RuntimeError(
+                f"QtLoader references {wrong} but the expected native "
+                f"library is absent: {native_lib}"
+            )
+
+        matches[0].text = correct
+        tree.write(resources, encoding="utf-8", xml_declaration=True)
+        self._warning(
+            "QtLoader references missing lib_arm64-v8a.so; repaired the "
+            "generated loader list to libmain_arm64-v8a.so and rebuilding."
+        )
+        self._run(
+            [str(distribution / "gradlew"),
+             "assembleDebug" if debug else "bundleRelease"],
+            distribution,
+        )
+        return True
+
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
         root = request.project_root
         if request.entry_point != "main.py":
@@ -264,5 +339,7 @@ class QtAndroidBuilder:
                     "Inspect the preceding toolchain output for its first failure "
                     "(e.g. missing javac, SDK, or NDK)."
                 ) from exc
+        if self._repair_qt_android_loader(artifact, debug=request.debug):
+            artifact = self._latest(root, (".apk", ".aab"))
         return MobileBuildArtifact(artifact, request.target, request.framework,
                                    artifact.suffix.lstrip("."))
