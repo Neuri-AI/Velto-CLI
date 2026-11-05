@@ -87,3 +87,27 @@ remain a separate Android compatibility concern.
 
 Test:
 `poetry run pytest tests/application/test_qt_android_assets.py -v`
+
+## Android application launcher icon
+
+The build automatically discovers the developer's PNG launcher icons. Selection
+is deterministic and independent of whether the build host runs macOS or Linux:
+
+1. `resources/linux/icons/512.png` (or the closest supported PNG in that folder)
+2. `resources/mac/icons/512.png` (fallback when the Linux PNG is absent)
+3. `resources/base/icons/64.png` (fallback for projects with only base icons)
+
+Within each folder, search preference is `512.png`, `1024.png`,
+`256.png`, `128.png`, `64.png`, `32.png`. Other desktop-only
+`.ico` and `.icns` files are not used as Android launch icons.
+
+**Qt:** apply the selected PNG to Gradle's `src/main/res/mipmap/icon.png`
+and rebuild through Gradle before publishing the signed artifact. **Kivy:**
+temporarily set `icon.filename` in `buildozer.spec` during the build,
+restoring the developer's original file afterwards.
+
+The CLI reports both the icon filename and its project folder:
+`Android launcher icon: resources/linux/icons/512.png (folder: resources/linux/icons)`.
+If no suitable PNG exists, it warns and retains the toolchain default.
+
+Tests: `poetry run pytest tests/application/test_android_project_icons.py -v`.
