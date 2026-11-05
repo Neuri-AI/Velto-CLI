@@ -62,7 +62,7 @@ def test_svg_spec_is_additive_and_idempotent(tmp_path):
 def test_svg_spec_recognizes_qtsvg_already_present(tmp_path):
     spec = tmp_path / "pysidedeploy.spec"
     spec.write_text(
-        "[qt]\nmodules = QtSvg\n[android]\nplugins = imageformats\n"
+        "[qt]\nmodules = QtSvg\n[android]\nplugins = imageformats_qsvg\n"
     )
     before = spec.read_bytes()
     assert configure_android_svg_spec(spec) is False
@@ -107,8 +107,8 @@ def test_svg_apk_verification_checks_private_bundle(tmp_path):
 def test_legacy_invalid_imageformats_spec_is_repaired(tmp_path):
     spec = tmp_path / "pysidedeploy.spec"
     spec.write_text(
-        "[qt]\\nmodules = Core,Gui,Widgets,Svg\\n"
-        "[android]\\nplugins = platforms,imageformats\\n"
+        "[qt]\nmodules = Core,Gui,Widgets,Svg\n"
+        "[android]\nplugins = platforms,imageformats\n"
     )
     assert configure_android_svg_spec(spec)
     parser = configparser.ConfigParser()
