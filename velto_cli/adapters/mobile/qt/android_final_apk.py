@@ -154,7 +154,7 @@ def finalize_copied_debug_apk(
         # p4a expects gzip+USTAR even though the filename is private.tar.
         # Repair already-modified APKs whose content was rewritten as plain
         # TAR, including when all resources and icons are already present.
-        private_needs_repair = not original_private.startswith(b"\\x1f\\x8b")
+        private_needs_repair = not original_private.startswith(bytes((0x1f, 0x8b)))
         if not missing and not icon_changed and not private_needs_repair:
             return apk, (), False
 
