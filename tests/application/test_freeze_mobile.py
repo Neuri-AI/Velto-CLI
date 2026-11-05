@@ -1,5 +1,7 @@
 """Tests for the mobile freeze application boundary and toolchain adapter."""
 from pathlib import Path
+import io
+import tarfile
 from zipfile import ZipFile
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -407,15 +409,33 @@ def test_pyside_build_reports_missing_javac_before_download(project, monkeypatch
     runner.run_capture.assert_not_called()
 
 
+def _qt_test_apk(path: Path) -> None:
+    """Construct a real ZIP APK fixture with a p4a-compatible private tar."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    private = io.BytesIO()
+    with tarfile.open(
+        fileobj=private, mode="w:gz", format=tarfile.USTAR_FORMAT
+    ) as archive:
+        source = b"print('hello')\\n"
+        entry = tarfile.TarInfo("main.py")
+        entry.size = len(source)
+        entry.mode = 0o644
+        archive.addfile(entry, io.BytesIO(source))
+    with ZipFile(path, "w") as artifact:
+        artifact.writestr("assets/private.tar", private.getvalue())
+
+
 def test_pyside_android_build_keeps_modules_and_gradle_diagnostics(
     project, monkeypatch,
 ):
     """Deploy receives explicit native PSX Qt modules even if spec is rewritten."""
     (project / "pysidedeploy.spec").write_text("[qt]\\nmodules = \\n")
     apk = project / "app.apk"
-    apk.write_bytes(b"apk")
     runner = Mock()
-    runner.run.return_value = 0
+    def deploy(command, cwd):
+        _qt_test_apk(apk)
+        return 0
+    runner.run.side_effect = deploy
     wheels = (
         project / "PySide6-6.12.0-cp310-abi3-android_aarch64.whl",
         project / "shiboken6-6.12.0-cp310-abi3-android_aarch64.whl",
@@ -458,6 +478,7 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     )
     libs = dist / "src" / "main" / "libs"
     libs.mkdir(parents=True)
+    (dist / "src" / "main" / "assets").mkdir(parents=True)
     (libs / "Qt6AndroidBindings.jar").touch()
     (dist / "gradlew").write_text("#!/bin/sh\n")
     (dist / "build.gradle").write_text(
@@ -481,13 +502,12 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     for wheel in wheels:
         wheel.touch()
     runner = Mock()
-    apk = dist / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+    apk = dist / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     def invoke(command, cwd):
         if command[0].endswith("pyside6-android-deploy"):
             return 1
         assert command == [str(dist / "gradlew"), "assembleDebug"]
-        apk.parent.mkdir(parents=True)
-        apk.write_bytes(b"apk")
+        _qt_test_apk(apk)
         return 0
     runner.run.side_effect = invoke
     monkeypatch.setattr(
@@ -506,7 +526,8 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     )
     artifact = MobileToolchainFreezer(runner).freeze(request)
     assert artifact.path == project / "build/android/qt/app-debug.apk"
-    assert artifact.path.read_bytes() == b"apk"
+    with ZipFile(artifact.path) as packaged:
+        assert "assets/private.tar" in packaged.namelist()
     assert apk.is_file()
     assert (libs / "Qt6Android.jar").read_bytes() == source.read_bytes()
     content = (dist / "build.gradle").read_text()
