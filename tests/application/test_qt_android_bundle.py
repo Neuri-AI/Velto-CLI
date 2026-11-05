@@ -73,13 +73,12 @@ def test_gradle_apk_is_preferred_over_project_copy(tmp_path):
     assert selected == canonical
 
 
-def test_gradle_artifact_selection_rejects_missing_canonical_build(tmp_path):
+def test_gradle_artifact_selection_keeps_copy_when_qt_cleans_build_tree(tmp_path):
     source = tmp_path / "app.apk"
     source.write_bytes(b"apk")
-    with pytest.raises(RuntimeError, match="Gradle artifact not found"):
-        MobileToolchainFreezer._qt_gradle_artifact(
-            tmp_path, source, debug=True
-        )
+    assert MobileToolchainFreezer._qt_gradle_artifact(
+        tmp_path, source, debug=True
+    ) == source
 
 
 def test_gradle_debug_apk_selected_when_cli_debug_is_false(tmp_path):
