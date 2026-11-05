@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 from gzip import GzipFile
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -169,10 +170,55 @@ def _amended_private_tar(
     return buffer.getvalue()
 
 
+# p4a compares a compiled string resource named "private_version" with
+# files/app/private.version at launch. Merely changing assets/private.tar
+# does NOT force Android to extract new Python files. For debug APKs only,
+# change the fixed-width 40-character SHA1 resource without changing the
+# surrounding binary XML/string-pool offsets. Reject ambiguous tables.
+_HEX40 = re.compile(rb"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
+_UTF16_HEX40 = re.compile(
+    rb"(?<![0-9a-f]\\x00)(?:[0-9a-f]\\x00){40}(?![0-9a-f]\\x00)"
+)
+
+
+def android_private_version_marker(arsc: bytes) -> tuple[bytes, bytes] | None:
+    """Identify a unique p4a private_version marker in compiled resources."""
+    if (b"private_version" not in arsc
+            and "private_version".encode("utf-16le") not in arsc):
+        return None
+    matches = [(m.group(), b"ascii") for m in _HEX40.finditer(arsc)]
+    matches.extend((m.group(), b"utf16") for m in _UTF16_HEX40.finditer(arsc))
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def replace_android_private_version(arsc: bytes, marker: str) -> bytes:
+    """Patch only a unique, fixed-length UTF-8/UTF-16 resource string."""
+    if not re.fullmatch(r"[0-9a-f]{40}", marker):
+        raise ValueError("Android private version must be a 40-character SHA1 hex")
+    located = android_private_version_marker(arsc)
+    if located is None:
+        raise RuntimeError(
+            "Cannot safely find the Android private_version resource. "
+            "Rebuild the Android application instead of reusing stale assets."
+        )
+    old, encoding = located
+    new = (marker.encode("ascii") if encoding == b"ascii"
+           else marker.encode("utf-16le"))
+    if new == old:
+        raise ValueError("Updated Android private_version must differ")
+    result = arsc.replace(old, new)
+    if len(result) != len(arsc):
+        raise AssertionError("Android resource table size changed")
+    return result
+
+
 def finalize_copied_debug_apk(
     apk: Path, root: Path, *, icon: Path | None,
     updates: dict[str, Path] | None = None,
     removals: frozenset[str] = frozenset(),
+    private_version: str | None = None,
 ) -> tuple[Path, tuple[str, ...], bool]:
     """Patch project assets and launcher PNG, zipalign, sign and verify.
 
@@ -214,7 +260,7 @@ def finalize_copied_debug_apk(
         # Repair already-modified APKs whose content was rewritten as plain
         # TAR, including when all resources and icons are already present.
         private_needs_repair = not original_private.startswith(bytes((0x1f, 0x8b)))
-        if (not missing and not updates and not removals
+        if (not missing and not updates and not removals and private_version is None
                 and not icon_changed and not private_needs_repair and not missing_parents):
             return apk, (), False
 
@@ -252,6 +298,10 @@ def finalize_copied_debug_apk(
                     payload = updated_private
                 elif name in icons and icon_bytes is not None:
                     payload = icon_bytes
+                elif name == "resources.arsc" and private_version is not None:
+                    payload = replace_android_private_version(
+                        original.read(name), private_version
+                    )
                 else:
                     payload = original.read(name)
                 output.writestr(member, payload)
@@ -273,6 +323,18 @@ def finalize_copied_debug_apk(
 
         # Check the exact final payload before replacing the original.
         with ZipFile(signed) as check:
+            if private_version is not None:
+                patched = android_private_version_marker(
+                    check.read("resources.arsc")
+                )
+                if patched is None:
+                    raise RuntimeError("Signed APK lost the private_version marker")
+                expected = (
+                    private_version.encode("ascii") if patched[1] == b"ascii"
+                    else private_version.encode("utf-16le")
+                )
+                if patched[0] != expected:
+                    raise RuntimeError("Signed APK retained stale extraction version")
             private_bytes = check.read(private_name)
             if not private_bytes.startswith(bytes((0x1f, 0x8b))):
                 raise RuntimeError(
