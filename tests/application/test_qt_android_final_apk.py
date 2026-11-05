@@ -62,6 +62,7 @@ def test_complete_root_copy_without_gradle_rebuild(tmp_path, monkeypatch):
     ]
     with ZipFile(apk) as output:
         assert output.read("res/mipmap/icon.png") == b"project-icon"
+        assert output.read("assets/private.tar").startswith(b"\\x1f\\x8b")
         with tarfile.open(fileobj=io.BytesIO(output.read("assets/private.tar"))) as tar:
             names = set(tar.getnames())
             assert "settings/base.json" in names
@@ -88,3 +89,51 @@ def test_original_apk_unchanged_if_signing_fails(tmp_path, monkeypatch):
             apk, tmp_path, icon=None
         )
     assert apk.read_bytes() == original
+
+
+def test_repair_previously_modified_plain_tar_without_new_assets(tmp_path, monkeypatch):
+    """A previously signed APK with a plain private.tar must be repaired."""
+    apk = tmp_path / "AndroidAppQt-debug.apk"
+    _apk(apk)
+    monkeypatch.setattr(
+        android_final_apk, "_android_sdk_tool",
+        lambda name: Path("/fake-sdk") / name,
+    )
+    monkeypatch.setattr(
+        android_final_apk, "_debug_keystore",
+        lambda: Path("/fake-debug.keystore"),
+    )
+    commands = []
+
+    def fake_run(args, **kwargs):
+        commands.append(args)
+        if Path(args[0]).name == "zipalign":
+            shutil.copyfile(args[-2], args[-1])
+        elif "sign" in args:
+            shutil.copyfile(args[-1], args[args.index("--out") + 1])
+        elif "verify" in args:
+            assert Path(args[-1]).is_file()
+        else:
+            raise AssertionError(f"Unexpected command: {args}")
+        from subprocess import CompletedProcess
+        return CompletedProcess(args, 0)
+
+    monkeypatch.setattr(android_final_apk.subprocess, "run", fake_run)
+    result, added, icon_changed = android_final_apk.finalize_copied_debug_apk(
+        apk, tmp_path, icon=None,
+    )
+    assert result == apk
+    assert added == ()
+    assert not icon_changed
+    assert len(commands) == 3
+    with ZipFile(apk) as z:
+        assert z.read("assets/private.tar").startswith(b"\\x1f\\x8b")
+        with tarfile.open(fileobj=io.BytesIO(z.read("assets/private.tar"))) as tar:
+            assert "main.py" in tar.getnames()
+
+    # After repair, repeating the same operation is a no-op.
+    commands.clear()
+    assert android_final_apk.finalize_copied_debug_apk(
+        apk, tmp_path, icon=None,
+    ) == (apk, (), False)
+    assert commands == ()
