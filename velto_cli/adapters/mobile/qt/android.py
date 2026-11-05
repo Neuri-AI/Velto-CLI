@@ -478,7 +478,7 @@ class QtAndroidBuilder:
         # builds, never an alternate public API. It runs BEFORE transient
         # framework packages are staged into the project tree.
         if enabled and request.debug:
-            quick = try_incremental_build(request.project_root)
+            quick = try_incremental_build(request.project_root, request)
             if quick is not None:
                 self._notice("Reused Android runtime; updated signed APK.")
                 return MobileBuildArtifact(
@@ -490,7 +490,7 @@ class QtAndroidBuilder:
         # tree, not the temporary Velto/Qyro/PSX package copies.
         if enabled and request.debug and built is not None and built.kind == "apk":
             try:
-                record_full_build(request.project_root, built.path)
+                record_full_build(request.project_root, built.path, request)
             except (OSError, RuntimeError, ValueError) as exc:
                 self._warning(
                     "Android incremental cache unavailable; future builds "
