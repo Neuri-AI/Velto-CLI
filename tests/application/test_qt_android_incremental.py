@@ -223,3 +223,30 @@ def test_clean_forces_full_deployment_instead_of_incremental(
     result = MobileToolchainFreezer(Mock()).freeze(request)
     assert result.path == apk
     assert called == ["full"]
+
+
+def test_utf16_private_version_string_is_replaced_without_repacking():
+    original = ("private_version" + chr(0)).encode("utf-16le") + (
+        "a" * 40
+    ).encode("utf-16le")
+    result = final.replace_android_private_version(original, "f" * 40)
+    assert len(result) == len(original)
+    found = final.android_private_version_marker(result)
+    assert found is not None
+    assert found[1] == b"utf16"
+    assert found[0] == ("f" * 40).encode("utf-16le")
+
+
+def test_missing_android_version_resource_disables_cache(project):
+    root, apk = project
+    with ZipFile(apk, "r") as zipped:
+        members = [(member, zipped.read(member.filename))
+                   for member in zipped.infolist()]
+    with ZipFile(apk, "w") as zipped:
+        for member, payload in members:
+            zipped.writestr(
+                member, b"not-a-private-version" if member.filename == "resources.arsc"
+                else payload
+            )
+    inc.record_full_build(root, apk, _request())
+    assert inc.try_incremental_build(root, _request()) is None
