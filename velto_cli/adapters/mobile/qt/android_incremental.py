@@ -7,7 +7,7 @@ pyside6-android-deploy path. No direct manipulation of installed app data.
 from __future__ import annotations
 
 import hashlib
-from importlib import metadata, util
+from importlib import metadata
 import json
 import os
 from pathlib import Path
@@ -15,7 +15,7 @@ import shutil
 import sys
 import tempfile
 from typing import Any
-from zipfile import ZipFile, BadZipFile
+from zipfile import ZipFile
 import io
 import tarfile
 
@@ -61,6 +61,9 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
     assets = _project_runtime_assets(root)
     for base, dirs, names in os.walk(root, followlinks=False):
         parent = Path(base)
+        for directory in dirs:
+            if (parent / directory).is_symlink():
+                native[(parent / directory).relative_to(root).as_posix()] = "symlink"
         dirs[:] = sorted(d for d in dirs if d not in _SKIP and
                          not (parent / d).is_symlink())
         for name in sorted(names):
@@ -112,9 +115,33 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
         "python": sys.version,
         "platform": sys.platform,
         "svg": project_uses_svg(root),
+        "cli_incremental_implementation": _sha_file(Path(__file__)),
         "format": _FORMAT,
     }, sort_keys=True).encode("utf-8")
     return sources, file_hashes, hashlib.sha256(key_material).hexdigest()
+
+
+def _request_key(request: Any) -> str:
+    """Changes to native deployment options must invalidate the source cache."""
+    wheel_data = {}
+    for key in ("wheel_pyside", "wheel_shiboken"):
+        wheel = getattr(request, key, None)
+        wheel_data[key] = (
+            {"path": str(wheel), "sha256": _sha_file(Path(wheel))}
+            if wheel is not None else None
+        )
+    data = {
+        "app": request.app_name,
+        "version": request.version,
+        "entry": request.entry_point,
+        "target": request.target.value,
+        "framework": request.framework.value,
+        "debug": request.debug,
+        "wheels": wheel_data,
+    }
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 def _cache_manifest(cache: Path) -> dict[str, Any] | None:
@@ -171,7 +198,7 @@ def _store(cache: Path, apk: Path, hashes: dict[str, str], native: str) -> None:
         os.replace(Path(tmp) / "manifest.json", cache / "manifest.json")
 
 
-def record_full_build(root: Path, apk: Path) -> None:
+def record_full_build(root: Path, apk: Path, request: Any) -> None:
     """Seed the fast path using a successfully produced signed debug APK."""
     if not apk.is_file() or apk.suffix.lower() != ".apk":
         return
@@ -180,10 +207,10 @@ def record_full_build(root: Path, apk: Path) -> None:
     if not set(sources).issubset(contents):
         # Do not trust an artifact that cannot represent the next source diff.
         return
-    _store(_cache_root(root), apk, hashes, native)
+    _store(_cache_root(root), apk, hashes, native + _request_key(request))
 
 
-def try_incremental_build(root: Path) -> Path | None:
+def try_incremental_build(root: Path, request: Any) -> Path | None:
     """Return a verified APK, or None when a complete build is needed.
 
     The source/destination APK is NEVER modified if validation or signing
@@ -197,6 +224,7 @@ def try_incremental_build(root: Path) -> Path | None:
     if _sha_file(previous) != meta["apk_sha256"]:
         return None
     sources, hashes, native = _scan(root)
+    native += _request_key(request)
     if native != meta["native"]:
         return None
     old = meta["files"]
