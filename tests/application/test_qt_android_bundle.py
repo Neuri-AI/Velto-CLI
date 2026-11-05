@@ -61,3 +61,21 @@ def test_ast_import_detection(tmp_path):
     assert detector(entry)
     entry.write_text("# from velto import VeltoContext\nprint('ok')\n")
     assert not detector(entry)
+
+
+def test_gradle_apk_is_preferred_over_project_copy(tmp_path):
+    project_copy = tmp_path / "Demo-0.1-arm64-v8a-debug.apk"
+    project_copy.write_bytes(b"copy")
+    canonical = android_distribution(tmp_path, packages=("velto", "qyro", "psx"))
+    selected = MobileToolchainFreezer._qt_gradle_artifact(
+        tmp_path, project_copy, debug=True
+    )
+    assert selected == canonical
+
+
+def test_gradle_artifact_selection_preserves_unrelated_projects(tmp_path):
+    source = tmp_path / "app.apk"
+    source.write_bytes(b"apk")
+    assert MobileToolchainFreezer._qt_gradle_artifact(
+        tmp_path, source, debug=True
+    ) == source
