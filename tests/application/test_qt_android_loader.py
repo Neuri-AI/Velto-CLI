@@ -38,7 +38,7 @@ def generated_distribution(tmp_path: Path, *, lib_name="main", entry=None):
         encoding="utf-8",
     )
     native = dist / "libs/arm64-v8a/libmain_arm64-v8a.so"
-    native.parent.mkdir(parents=True)
+    native.parent.mkdir(parents=True, exist_ok=True)
     native.write_bytes(b"native-test-fixture")
     artifact = dist / "build/outputs/apk/debug/AndroidAppQt-debug.apk"
     artifact.parent.mkdir(parents=True)
