@@ -7,6 +7,8 @@ from pysidedeploy.spec. Both must be set before invoking the deploy wrapper.
 from __future__ import annotations
 
 import configparser
+import io
+import tarfile
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -77,3 +79,37 @@ def configure_android_svg_spec(spec: Path) -> bool:
     parser.write(buffer)
     spec.write_text(buffer.getvalue(), encoding="utf-8")
     return True
+
+
+def verify_android_svg_apk(artifact: Path) -> None:
+    """Do not publish a Velto SVG app without its Android Qt image plugin.
+
+    The platform may package Qt plugins as native APK libraries or inside
+    the private Python archive. Check both, rather than assuming that
+    declaring Svg in the deploy spec was sufficient.
+    """
+    if artifact.suffix.lower() != ".apk":
+        return  # AAB has a different layout; verified by the bundle toolchain.
+    with ZipFile(artifact) as apk:
+        entries = list(apk.namelist())
+        for name in entries:
+            if "qsvg" in name.lower() and name.endswith(".so"):
+                return
+        for private in ("assets/private.tar", "assets/private.mp3"):
+            if private not in entries:
+                continue
+            with tarfile.open(
+                fileobj=io.BytesIO(apk.read(private)), mode="r:*"
+            ) as payload:
+                if any(
+                    "qsvg" in member.name.lower()
+                    and member.name.endswith(".so")
+                    for member in payload.getmembers()
+                ):
+                    return
+    raise RuntimeError(
+        "Android APK lacks Qt's SVG imageformats plugin (qsvg). "
+        "The selected PySide6 wheel includes SVG, but the Qt Android deploy "
+        "did not package it. Check [qt] modules=Svg and "
+        "[android] plugins=imageformats in pysidedeploy.spec."
+    )
