@@ -477,7 +477,7 @@ class QtAndroidBuilder:
         # The incremental cache is an opt-out implementation detail of debug
         # builds, never an alternate public API. It runs BEFORE transient
         # framework packages are staged into the project tree.
-        if enabled and request.debug:
+        if enabled and request.debug and not request.clean:
             quick = try_incremental_build(request.project_root, request)
             if quick is not None:
                 self._notice("Reused Android runtime; updated signed APK.")
