@@ -5,6 +5,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
+from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 from velto_cli.adapters.mobile.qt.android_sources import (
     uses_velto, staged_velto_sources, verify_velto_apk_sources,
@@ -367,6 +368,29 @@ class QtAndroidBuilder:
         return True
 
     @staticmethod
+    def _apply_qt_android_icon(artifact: Path, source: Path) -> bool:
+        """Replace p4a's default launcher image in the generated Gradle tree.
+
+        AndroidManifest points to @mipmap/icon. Updating that resource before
+        a Gradle rebuild preserves Android signing and avoids patching an APK.
+        """
+        distribution = next(
+            (p for p in artifact.parents if (p / "gradlew").is_file()),
+            None,
+        )
+        if distribution is None:
+            raise RuntimeError("Qt Android Gradle directory not found for project icon.")
+        target = distribution / "src/main/res/mipmap/icon.png"
+        if not target.parent.is_dir():
+            raise RuntimeError(
+                f"Qt Android launcher mipmap directory is missing: {target.parent}"
+            )
+        if target.is_file() and target.read_bytes() == source.read_bytes():
+            return False
+        shutil.copyfile(source, target)
+        return True
+
+    @staticmethod
     def _requires_velto_runtime(entry: Path) -> bool:
         return uses_velto(entry)
 
@@ -494,6 +518,21 @@ class QtAndroidBuilder:
             artifact = self._qt_gradle_artifact(
                 root, artifact, debug=request.debug
             )
+        icon = select_android_project_icon(root)
+        icon_changed = False
+        if icon is not None:
+            icon_changed = self._apply_qt_android_icon(artifact, icon)
+            self._notice(
+                f"Android launcher icon: {icon.relative_path} "
+                f"(folder: {icon.folder})"
+            )
+        else:
+            self._warning(
+                "No project PNG launcher icon found in resources/linux/icons, "
+                "resources/mac/icons or resources/base/icons; "
+                "keeping the Android toolchain default."
+            )
+
         if enabled := uses_velto(root / request.entry_point):
             added = complete_qt_android_private_assets(
                 root, artifact, self._run, debug=request.debug,
@@ -503,9 +542,28 @@ class QtAndroidBuilder:
                     f"Included {len(added)} Velto settings/resource files "
                     "in the Qt Android package."
                 )
-                artifact = self._qt_gradle_artifact(
-                    root, artifact, debug=request.debug
+            elif icon_changed:
+                # Assets already complete: Gradle must still package the new
+                # launcher icon. Never modify a signed APK in place.
+                distribution = next(
+                    p for p in artifact.parents if (p / "gradlew").is_file()
                 )
+                self._run([
+                    str(distribution / "gradlew"),
+                    "assembleDebug" if request.debug else "bundleRelease",
+                ], distribution)
+        elif icon_changed:
+            distribution = next(
+                p for p in artifact.parents if (p / "gradlew").is_file()
+            )
+            self._run([
+                str(distribution / "gradlew"),
+                "assembleDebug" if request.debug else "bundleRelease",
+            ], distribution)
+        if icon_changed or (enabled and added):
+            artifact = self._qt_gradle_artifact(
+                root, artifact, debug=request.debug
+            )
         self._verify_qt_android_velto_bundle(
             artifact, entry=root / request.entry_point
         )
