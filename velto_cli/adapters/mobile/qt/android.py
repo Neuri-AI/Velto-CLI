@@ -477,7 +477,7 @@ class QtAndroidBuilder:
         # The incremental cache is an opt-out implementation detail of debug
         # builds, never an alternate public API. It runs BEFORE transient
         # framework packages are staged into the project tree.
-        if enabled and not request.clean:
+        if enabled and request.debug and not request.clean:
             try:
                 quick = try_incremental_build(request.project_root, request)
             except Exception as exc:
@@ -497,7 +497,7 @@ class QtAndroidBuilder:
             built = self._pyside_android_impl(request)
         # Source staging has now been removed. Snapshot the real developer
         # tree, not the temporary Velto/Qyro/PSX package copies.
-        if enabled and built is not None and built.kind == "apk":
+        if enabled and request.debug and built is not None and built.kind == "apk":
             try:
                 record_full_build(request.project_root, built.path, request)
             except (OSError, RuntimeError, ValueError) as exc:
