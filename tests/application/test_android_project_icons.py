@@ -80,7 +80,13 @@ def test_qt_launcher_icon_replaces_generated_mipmap_before_build(tmp_path):
     icon = select_android_project_icon(tmp_path)
     gradle = tmp_path / ".buildozer/android/platform/build-arm64/dists/App"
     gradle.mkdir(parents=True)
-    (gradle / "gradlew").write_text("#!/bin/sh\n")
+    # The distribution can be valid without a local gradlew wrapper.
+    manifest = gradle / "src/main/AndroidManifest.xml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+        '<application android:icon="@mipmap/icon"/></manifest>'
+    )
     mipmap = gradle / "src/main/res/mipmap"
     mipmap.mkdir(parents=True)
     target = mipmap / "icon.png"
@@ -92,3 +98,26 @@ def test_qt_launcher_icon_replaces_generated_mipmap_before_build(tmp_path):
     assert MobileToolchainFreezer._apply_qt_android_icon(apk, icon.source)
     assert target.read_bytes() == b"new"
     assert not MobileToolchainFreezer._apply_qt_android_icon(apk, icon.source)
+
+
+def test_qt_icon_replaces_multiple_android_density_resources(tmp_path):
+    _icon(tmp_path, "resources/linux/icons", "512.png", b"new")
+    selected = select_android_project_icon(tmp_path)
+    assert selected is not None
+    gradle = tmp_path / ".buildozer/android/platform/build-arm64/dists/App"
+    manifest = gradle / "src/main/AndroidManifest.xml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+        '<application android:icon="@mipmap/icon"/></manifest>'
+    )
+    for folder in ("mipmap", "mipmap-hdpi", "mipmap-xhdpi"):
+        image = gradle / "src/main/res" / folder / "icon.png"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"default")
+    apk = gradle / "build/outputs/apk/debug/app.apk"
+    apk.parent.mkdir(parents=True)
+    apk.write_bytes(b"fake")
+    assert MobileToolchainFreezer._apply_qt_android_icon(apk, selected.source)
+    for folder in ("mipmap", "mipmap-hdpi", "mipmap-xhdpi"):
+        assert (gradle / "src/main/res" / folder / "icon.png").read_bytes() == b"new"
