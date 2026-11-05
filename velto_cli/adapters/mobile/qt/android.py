@@ -8,6 +8,7 @@ from zipfile import BadZipFile, ZipFile
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 from velto_cli.adapters.mobile.qt.android_sources import (
     uses_velto, staged_velto_sources, verify_velto_apk_sources,
+    complete_qt_android_private_assets, verify_qt_android_runtime_assets,
 )
 from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest, MobileTarget
 
@@ -493,9 +494,23 @@ class QtAndroidBuilder:
             artifact = self._qt_gradle_artifact(
                 root, artifact, debug=request.debug
             )
+        if enabled := uses_velto(root / request.entry_point):
+            added = complete_qt_android_private_assets(
+                root, artifact, self._run, debug=request.debug,
+            )
+            if added:
+                self._notice(
+                    f"Included {len(added)} Velto settings/resource files "
+                    "in the Qt Android package."
+                )
+                artifact = self._qt_gradle_artifact(
+                    root, artifact, debug=request.debug
+                )
         self._verify_qt_android_velto_bundle(
             artifact, entry=root / request.entry_point
         )
+        if enabled:
+            verify_qt_android_runtime_assets(artifact, root)
         published = self._publish_android_artifact(
             artifact, root, backend="qt"
         )
