@@ -7,6 +7,7 @@ from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
+from velto_cli.adapters.mobile.qt.android_build_inputs import isolate_previous_android_build_outputs
 from velto_cli.adapters.mobile.qt.android_svg import (
     project_uses_svg, assert_android_svg_wheel, configure_android_svg_spec,
     verify_android_svg_apk,
@@ -529,17 +530,24 @@ class QtAndroidBuilder:
             "--wheel-pyside", str(wheel_pyside),
             "--wheel-shiboken", str(wheel_shiboken),
         ])
-        try:
-            self._run(args, root)
-        except RuntimeError:
-            # Qt's wrapper can report Buildozer failure (or exit 0 without an
-            # APK) when QtActivityBase is absent from Gradle's Java classpath.
-            # Retry only when the generated project proves the missing-JAR
-            # condition; unrelated deployment failures retain their error.
-            if request.init_only or not self._repair_qt_android_gradle(
-                root, debug=request.debug
-            ):
-                raise
+        # Buildozer recursively scans the project. Prior APK inspection
+        # directories under build/android/qt can contain extracted files
+        # owned by another UID; those are NOT app sources. Isolate build
+        # outputs outside the project while pyside6-android-deploy runs.
+        preexisting_artifacts = {
+            p.resolve(): (p.stat().st_mtime_ns, p.stat().st_size)
+            for suffix in ("*.apk", "*.aab")
+            for p in root.glob(suffix) if p.is_file()
+        }
+        with isolate_previous_android_build_outputs(root):
+            try:
+                self._run(args, root)
+            except RuntimeError:
+                # Retry only for proven Qt bootstrap classpath defects.
+                if request.init_only or not self._repair_qt_android_gradle(
+                    root, debug=request.debug
+                ):
+                    raise
         if request.init_only:
             if not spec.is_file():
                 raise RuntimeError(
@@ -562,6 +570,17 @@ class QtAndroidBuilder:
         artifact = self._qt_gradle_artifact(
             root, artifact, debug=request.debug
         )
+        # PySide6 sometimes prints a Buildozer traceback yet returns success.
+        # A previously built APK is not evidence the current build succeeded.
+        previous = preexisting_artifacts.get(artifact.resolve())
+        if previous is not None and (
+            artifact.stat().st_mtime_ns, artifact.stat().st_size
+        ) == previous:
+            raise RuntimeError(
+                "PySide6 Android deploy produced no new APK/AAB; "
+                "a previous artifact was found unchanged. Inspect the "
+                "Buildozer traceback above instead of treating it as success."
+            )
         if self._repair_qt_android_loader(artifact, debug=request.debug):
             artifact = self._qt_gradle_artifact(
                 root, artifact, debug=request.debug
