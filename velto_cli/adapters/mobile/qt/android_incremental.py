@@ -10,6 +10,7 @@ import hashlib
 from importlib import metadata
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -102,6 +103,10 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
                 if rel in sources:
                     raise RuntimeError("Ambiguous Android Python source: " + rel)
                 sources[rel] = item
+                # Changes to the native Qt adapter might require a new Qt
+                # image format, Java bridge or library. Favor correctness.
+                if rel.startswith("psx/renderers/qt/"):
+                    native[f"qt-adapter:{rel}"] = _sha_file(item)
             elif item.suffix.lower() in (".so", ".dylib", ".pyd", ".dll"):
                 native[f"installed:{rel}"] = _sha_file(item)
     keystore = Path.home() / ".android/debug.keystore"
@@ -109,6 +114,18 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
         _sha_file(keystore) if keystore.is_file() else "<not-created>"
     )
     file_hashes = {name: _sha_file(path) for name, path in sorted(sources.items())}
+    # Adding an explicit Qt module import is a native dependency change, not
+    # merely a source edit. Dynamic imports remain covered conservatively by
+    # the native Qt adapter fingerprint above.
+    qt_imports: set[str] = set()
+    qt_ref = re.compile(r"\\b(?:PySide6|PyQt6|PySide2|PyQt5)\\.(Qt[A-Za-z0-9_]+)")
+    for path in sources.values():
+        if path.suffix.lower() == ".py":
+            try:
+                qt_imports.update(qt_ref.findall(path.read_text(encoding="utf-8")))
+            except UnicodeError:
+                raise RuntimeError(f"Invalid Android Python source encoding: {path}")
+    native["qt-required-modules"] = ",".join(sorted(qt_imports))
     versions: dict[str, str] = {}
     for package in ("PySide6", "shiboken6", "buildozer", "python-for-android",
                     "velto-cli", "velto-core", "qyro-engine", "velto-cinnamon-core"):
