@@ -41,7 +41,7 @@ def generated_distribution(tmp_path: Path, *, lib_name="main", entry=None):
     native.parent.mkdir(parents=True, exist_ok=True)
     native.write_bytes(b"native-test-fixture")
     artifact = dist / "build/outputs/apk/debug/AndroidAppQt-debug.apk"
-    artifact.parent.mkdir(parents=True)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_bytes(b"mock-apk")
     return dist, resources, native, artifact
 
@@ -77,8 +77,9 @@ def test_loader_repair_respects_manifest_and_already_valid_metadata(tmp_path):
     assert builder._repair_qt_android_loader(artifact, debug=True) is False
     assert "lib_arm64-v8a.so" in resources.read_text()
 
+    # Independent fixture avoids sharing generated files across scenarios.
     _, resources, _, artifact = generated_distribution(
-        tmp_path, entry="arm64-v8a;libmain_arm64-v8a.so"
+        tmp_path / "already-valid", entry="arm64-v8a;libmain_arm64-v8a.so"
     )
     assert builder._repair_qt_android_loader(artifact, debug=True) is False
     runner.run.assert_not_called()
