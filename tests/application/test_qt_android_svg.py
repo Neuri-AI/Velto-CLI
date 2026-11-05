@@ -9,6 +9,7 @@ from velto_cli.adapters.mobile.qt.android_svg import (
     project_uses_svg,
     assert_android_svg_wheel,
     configure_android_svg_spec,
+    verify_android_svg_apk,
 )
 
 
@@ -66,3 +67,38 @@ def test_svg_spec_recognizes_qtsvg_already_present(tmp_path):
     before = spec.read_bytes()
     assert configure_android_svg_spec(spec) is False
     assert spec.read_bytes() == before
+
+
+def test_svg_apk_verification_checks_native_plugin(tmp_path):
+    apk = tmp_path / "app.apk"
+    with ZipFile(apk, "w") as z:
+        z.writestr(
+            "lib/arm64-v8a/libplugins_imageformats_qsvg_arm64-v8a.so", b"elf",
+        )
+    verify_android_svg_apk(apk)
+
+
+def test_svg_apk_verification_rejects_missing_plugin(tmp_path):
+    apk = tmp_path / "app.apk"
+    with ZipFile(apk, "w") as z:
+        z.writestr("assets/private.tar", b"")
+    with pytest.raises(RuntimeError, match="SVG imageformats plugin"):
+        verify_android_svg_apk(apk)
+
+
+def test_svg_apk_verification_checks_private_bundle(tmp_path):
+    import io
+    import tarfile
+    apk = tmp_path / "app.apk"
+    bundle = io.BytesIO()
+    with tarfile.open(fileobj=bundle, mode="w:gz") as tar:
+        data = b"library"
+        entry = tarfile.TarInfo(
+            "_python_bundle/site-packages/PySide6/Qt/plugins/"
+            "imageformats/libplugins_imageformats_qsvg_arm64-v8a.so"
+        )
+        entry.size = len(data)
+        tar.addfile(entry, io.BytesIO(data))
+    with ZipFile(apk, "w") as z:
+        z.writestr("assets/private.tar", bundle.getvalue())
+    verify_android_svg_apk(apk)
