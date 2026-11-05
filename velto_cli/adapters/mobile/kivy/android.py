@@ -1,5 +1,9 @@
 """Kivy Android Buildozer deployment."""
 import re
+from velto_cli.adapters.mobile.common.android_icons import (
+    configured_kivy_android_icon,
+    select_android_project_icon,
+)
 from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest
 
 
@@ -34,7 +38,23 @@ class KivyAndroidBuilder:
         if request.entry_point != "main.py":
             raise ValueError("Buildozer expects main.py at the project root")
         command = self._command("buildozer")
-        self._run([command, "android", "debug" if request.debug else "release"], root)
+        icon = select_android_project_icon(root)
+        if icon is not None:
+            self._notice(
+                f"Android launcher icon: {icon.relative_path} "
+                f"(folder: {icon.folder})"
+            )
+        else:
+            self._warning(
+                "No project PNG launcher icon found in resources/linux/icons, "
+                "resources/mac/icons or resources/base/icons; "
+                "keeping the Android toolchain default."
+            )
+        with configured_kivy_android_icon(spec, icon):
+            self._run(
+                [command, "android", "debug" if request.debug else "release"],
+                root,
+            )
         artifact = self._latest(root / "bin", (".apk",) if request.debug else (".aab", ".apk"))
         published = self._publish_android_artifact(
             artifact, root, backend="kivy"
