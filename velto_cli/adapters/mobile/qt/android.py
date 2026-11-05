@@ -375,20 +375,46 @@ class QtAndroidBuilder:
         a Gradle rebuild preserves Android signing and avoids patching an APK.
         """
         distribution = next(
-            (p for p in artifact.parents if (p / "gradlew").is_file()),
+            (parent for parent in artifact.parents
+             if parent.parent.name == "dists" and
+             (parent / "src/main/AndroidManifest.xml").is_file()),
             None,
         )
         if distribution is None:
-            raise RuntimeError("Qt Android Gradle directory not found for project icon.")
-        target = distribution / "src/main/res/mipmap/icon.png"
-        if not target.parent.is_dir():
             raise RuntimeError(
-                f"Qt Android launcher mipmap directory is missing: {target.parent}"
+                f"Qt Android Gradle distribution not found for APK: {artifact}. "
+                "Expected a built APK under .buildozer/android/platform/"
+                "build-*/dists/<name>/build/outputs/."
             )
-        if target.is_file() and target.read_bytes() == source.read_bytes():
-            return False
-        shutil.copyfile(source, target)
-        return True
+        res = distribution / "src/main/res"
+        manifest = ET.parse(distribution / "src/main/AndroidManifest.xml")
+        android_ns = "{http://schemas.android.com/apk/res/android}"
+        application = manifest.getroot().find("application")
+        reference = (
+            application.get(android_ns + "icon")
+            if application is not None else None
+        )
+        if not reference or not reference.startswith("@mipmap/"):
+            raise RuntimeError(
+                f"Qt Android manifest does not declare a mipmap launcher icon: "
+                f"{reference!r} in {distribution}"
+            )
+        stem = reference.split("/", 1)[1]
+        targets = sorted(
+            path for path in res.glob(f"mipmap*/{stem}.png")
+            if path.is_file()
+        )
+        if not targets:
+            raise RuntimeError(
+                f"Qt Android launcher PNG resources missing for {reference}: {res}"
+            )
+        source_bytes = source.read_bytes()
+        changed = False
+        for target in targets:
+            if target.read_bytes() != source_bytes:
+                shutil.copyfile(source, target)
+                changed = True
+        return changed
 
     @staticmethod
     def _requires_velto_runtime(entry: Path) -> bool:
