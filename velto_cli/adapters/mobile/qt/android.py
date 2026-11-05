@@ -557,6 +557,9 @@ class QtAndroidBuilder:
             artifact = self._qt_gradle_artifact(
                 root, artifact, debug=request.debug
             )
+        # PySide6 may always emit an APK debug build even when --debug was omitted.
+        # Match all post-build Gradle tasks to the actual artifact format.
+        artifact_is_apk = artifact.suffix.lower() == ".apk"
         icon = select_android_project_icon(root)
         icon_changed = False
         if icon is not None:
@@ -574,7 +577,7 @@ class QtAndroidBuilder:
 
         if enabled := uses_velto(root / request.entry_point):
             added = complete_qt_android_private_assets(
-                root, artifact, self._run, debug=request.debug,
+                root, artifact, self._run, debug=artifact_is_apk,
             )
             if added:
                 self._notice(
@@ -590,7 +593,7 @@ class QtAndroidBuilder:
                     )
                 self._run([
                     _gradle_command(distribution),
-                    "assembleDebug" if request.debug else "bundleRelease",
+                    "assembleDebug" if artifact_is_apk else "bundleRelease",
                 ], distribution)
         elif icon_changed:
             distribution = _gradle_directory(artifact)
@@ -600,7 +603,7 @@ class QtAndroidBuilder:
                 )
             self._run([
                 _gradle_command(distribution),
-                "assembleDebug" if request.debug else "bundleRelease",
+                "assembleDebug" if artifact_is_apk else "bundleRelease",
             ], distribution)
         if icon_changed or (enabled and added):
             artifact = self._qt_gradle_artifact(
