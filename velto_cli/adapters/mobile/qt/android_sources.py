@@ -195,10 +195,28 @@ def _project_runtime_assets(root: Path) -> dict[str, Path]:
 
 
 def _gradle_directory(artifact: Path) -> Path | None:
+    """Find the p4a distribution by its dists/<name> path, not gradlew.
+
+    p4a may use a gradlew command from PATH, so absence of the wrapper
+    inside a distribution is not evidence that the distribution is absent.
+    """
     for directory in artifact.parents:
-        if (directory / "gradlew").is_file():
+        if (directory.parent.name == "dists"
+                and (directory / "src/main/assets").is_dir()):
             return directory
     return None
+
+
+def _gradle_command(directory: Path) -> str:
+    wrapper = directory / "gradlew"
+    if wrapper.is_file():
+        return str(wrapper)
+    installed = shutil.which("gradlew")
+    if installed is not None:
+        return installed
+    raise RuntimeError(
+        f"Qt Android Gradle wrapper is unavailable for distribution: {directory}"
+    )
 
 
 def complete_qt_android_private_assets(
@@ -259,7 +277,7 @@ def complete_qt_android_private_assets(
     finally:
         staged.unlink(missing_ok=True)
 
-    run([str(gradle / "gradlew"),
+    run([_gradle_command(gradle),
          "assembleDebug" if debug else "bundleRelease"], gradle)
     return tuple(sorted(missing))
 
