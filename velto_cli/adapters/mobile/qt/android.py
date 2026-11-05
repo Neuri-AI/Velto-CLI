@@ -7,6 +7,9 @@ from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
+from velto_cli.adapters.mobile.qt.android_svg import (
+    project_uses_svg, assert_android_svg_wheel, configure_android_svg_spec,
+)
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 from velto_cli.adapters.mobile.qt.android_sources import (
     uses_velto, staged_velto_sources, verify_velto_apk_sources,
@@ -496,6 +499,17 @@ class QtAndroidBuilder:
             )
 
         wheel_pyside, wheel_shiboken = self._qt_android_wheels(request)
+        # QPixmap needs the SVG imageformats plugin, not just QtGui.
+        # Verify that the target Android wheel can supply it before p4a
+        # starts compiling, then declare BOTH the QtSvg dependency and the
+        # imageformats plugin in pyside's Android-specific spec section.
+        svg_required = not request.init_only and project_uses_svg(root)
+        if svg_required:
+            assert_android_svg_wheel(wheel_pyside)
+            if configure_android_svg_spec(spec):
+                self._notice(
+                    "Configured QtSvg and Android imageformats plugin for SVG assets."
+                )
         command = self._command("pyside6-android-deploy")
         args = [command]
         if request.init_only:
@@ -507,7 +521,7 @@ class QtAndroidBuilder:
             # Retain the generated Java/Gradle project when Android fails,
             # so missing classpath JARs can be inspected and diagnosed.
             args.extend([
-                "--extra-modules", "Core,Gui,Widgets",
+                "--extra-modules", "Core,Gui,Widgets,Svg",
                 "--keep-deployment-files",
             ])
         args.extend([
