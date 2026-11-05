@@ -254,25 +254,23 @@ def complete_qt_android_private_assets(
             for member in archive.getmembers() if member.isfile()
         }
     missing = {name: path for name, path in assets.items() if name not in present}
-    if not missing:
+    # Match the copied-APK finalizer: p4a requires gzip USTAR and explicit
+    # parent directory entries, including for nested settings/resources.
+    # Import lazily to avoid the android_final_apk -> android_sources cycle.
+    from velto_cli.adapters.mobile.qt.android_final_apk import (
+        _amended_private_tar,
+        _missing_parent_dirs,
+    )
+    with tarfile.open(private, "r:*") as archive:
+        missing_parents = _missing_parent_dirs(archive)
+    if not missing and not missing_parents:
         return ()
-
-    # Keep the original tar intact if staging fails.
     with tempfile.NamedTemporaryFile(
         prefix=".velto-private-", suffix=".tar", dir=asset_dir, delete=False
     ) as temp:
         staged = Path(temp.name)
     try:
-        shutil.copyfile(private, staged)
-        # p4a private.mp3 is normally an uncompressed tar with a media
-        # extension; refuse unsupported compression rather than corrupt it.
-        with tarfile.open(staged, "a") as archive:
-            for name, source in sorted(missing.items()):
-                info = tarfile.TarInfo(name)
-                info.size = source.stat().st_size
-                info.mode = 0o644
-                with source.open("rb") as stream:
-                    archive.addfile(info, stream)
+        staged.write_bytes(_amended_private_tar(private.read_bytes(), missing))
         staged.replace(private)
     finally:
         staged.unlink(missing_ok=True)
