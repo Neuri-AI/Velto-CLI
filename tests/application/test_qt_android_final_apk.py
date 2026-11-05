@@ -62,8 +62,8 @@ def test_complete_root_copy_without_gradle_rebuild(tmp_path, monkeypatch):
     ]
     with ZipFile(apk) as output:
         assert output.read("res/mipmap/icon.png") == b"project-icon"
-        assert output.read("assets/private.tar").startswith(b"\\x1f\\x8b")
-        with tarfile.open(fileobj=io.BytesIO(output.read("assets/private.tar"))) as tar:
+        assert output.read("assets/private.tar").startswith(bytes((0x1f, 0x8b)))
+        with tarfile.open(fileobj=io.BytesIO(output.read("assets/private.tar")), mode="r:*") as tar:
             names = set(tar.getnames())
             assert "settings/base.json" in names
             assert "settings/secrets.json" not in names
@@ -127,8 +127,8 @@ def test_repair_previously_modified_plain_tar_without_new_assets(tmp_path, monke
     assert not icon_changed
     assert len(commands) == 3
     with ZipFile(apk) as z:
-        assert z.read("assets/private.tar").startswith(b"\\x1f\\x8b")
-        with tarfile.open(fileobj=io.BytesIO(z.read("assets/private.tar"))) as tar:
+        assert z.read("assets/private.tar").startswith(bytes((0x1f, 0x8b)))
+        with tarfile.open(fileobj=io.BytesIO(z.read("assets/private.tar")), mode="r:*") as tar:
             assert "main.py" in tar.getnames()
 
     # After repair, repeating the same operation is a no-op.
