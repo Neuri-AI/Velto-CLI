@@ -65,7 +65,10 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
         parent = Path(base)
         for directory in dirs:
             if (parent / directory).is_symlink():
-                native[(parent / directory).relative_to(root).as_posix()] = "symlink"
+                raise RuntimeError(
+                    "Android incremental mode cannot certify symlink directory: "
+                    + str(parent / directory)
+                )
         dirs[:] = sorted(d for d in dirs if d not in _SKIP and
                          not (parent / d).is_symlink())
         for name in sorted(names):
@@ -74,8 +77,10 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
             if item.is_symlink():
                 # A symlink could reach outside the build tree; no incremental
                 # patch is permitted when we cannot prove its provenance.
-                native[rel] = "symlink"
-                continue
+                raise RuntimeError(
+                    "Android incremental mode cannot certify symlink file: "
+                    + str(item)
+                )
             if not item.is_file() or item.suffix.lower() in _OUTPUT_SUFFIXES:
                 continue
             if rel in assets or item.suffix.lower() == ".py":
@@ -123,7 +128,14 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
         "python": sys.version,
         "platform": sys.platform,
         "svg": project_uses_svg(root),
-        "cli_incremental_implementation": _sha_file(Path(__file__)),
+        "packager_implementation": {
+            name: _sha_file(Path(__file__).with_name(name))
+            for name in (
+                "android_incremental.py", "android_final_apk.py",
+                "android_sources.py", "android.py",
+                "android_svg.py", "android_build_inputs.py",
+            )
+        },
         "format": _FORMAT,
     }, sort_keys=True).encode("utf-8")
     return sources, file_hashes, hashlib.sha256(key_material).hexdigest()
