@@ -1,0 +1,68 @@
+"""SVG support must be packaged, not just available on desktop."""
+import configparser
+from pathlib import Path
+from zipfile import ZipFile
+
+import pytest
+
+from velto_cli.adapters.mobile.qt.android_svg import (
+    project_uses_svg,
+    assert_android_svg_wheel,
+    configure_android_svg_spec,
+)
+
+
+def test_svg_assets_require_android_plugin(tmp_path):
+    assert not project_uses_svg(tmp_path)
+    source = tmp_path / "resources/base/images/logo.svg"
+    source.parent.mkdir(parents=True)
+    source.write_text("<svg/>")
+    assert project_uses_svg(tmp_path)
+
+
+def test_svg_wheel_preflight(tmp_path):
+    wheel = tmp_path / "pyside6-android.whl"
+    with ZipFile(wheel, "w") as z:
+        z.writestr(
+            "PySide6/Qt/plugins/imageformats/libplugins_imageformats_qsvg_arm64-v8a.so",
+            b"plugin",
+        )
+    assert assert_android_svg_wheel(wheel) is None
+
+
+def test_missing_svg_plugin_fails_before_build(tmp_path):
+    wheel = tmp_path / "pyside6-android.whl"
+    with ZipFile(wheel, "w") as z:
+        z.writestr("PySide6/Qt/plugins/platforms/libqtforandroid.so", b"qt")
+    with pytest.raises(RuntimeError, match="SVG imageformats"):
+        assert_android_svg_wheel(wheel)
+
+
+def test_svg_spec_is_additive_and_idempotent(tmp_path):
+    spec = tmp_path / "pysidedeploy.spec"
+    spec.write_text(
+        "[qt]\nmodules = Core,Gui,Widgets\n"
+        "[android]\nplugins = platforms\narch = aarch64\n"
+        "[buildozer]\nmode = debug\n",
+        encoding="utf-8",
+    )
+    assert configure_android_svg_spec(spec) is True
+    config = configparser.ConfigParser()
+    config.read(spec)
+    assert config["qt"]["modules"] == "Core,Gui,Widgets,Svg"
+    assert config["android"]["plugins"] == "platforms,imageformats"
+    assert config["android"]["arch"] == "aarch64"
+    assert config["buildozer"]["mode"] == "debug"
+    before = spec.read_bytes()
+    assert configure_android_svg_spec(spec) is False
+    assert spec.read_bytes() == before
+
+
+def test_svg_spec_recognizes_qtsvg_already_present(tmp_path):
+    spec = tmp_path / "pysidedeploy.spec"
+    spec.write_text(
+        "[qt]\nmodules = QtSvg\n[android]\nplugins = imageformats\n"
+    )
+    before = spec.read_bytes()
+    assert configure_android_svg_spec(spec) is False
+    assert spec.read_bytes() == before
