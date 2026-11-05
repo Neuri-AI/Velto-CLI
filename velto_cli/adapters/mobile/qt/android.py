@@ -266,6 +266,102 @@ class QtAndroidBuilder:
         )
         return True
 
+    def _repair_qt_android_qpa(self, artifact: Path, *, debug: bool) -> bool:
+        """Preload the Android QPA plugin which implements QtActivityDelegate JNI.
+
+        Some PySide6/p4a deployments keep qtforandroid only in the Python
+        bundle. QtActivityDelegateBase calls updateUiMotionScale() before
+        Python starts, so the plugin must also be in the APK native library
+        directory and loaded by QtLoader before the main library.
+        """
+        distribution = next(
+            (parent for parent in artifact.parents if parent.parent.name == "dists"),
+            None,
+        )
+        if distribution is None:
+            return False
+
+        resources = distribution / "src/main/res/values/libs.xml"
+        if not resources.is_file():
+            return False
+        arch = "arm64-v8a"
+        name = "libplugins_platforms_qtforandroid_arm64-v8a.so"
+        bundle_root = distribution / f"_python_bundle__{arch}"
+        source = (
+            bundle_root / "_python_bundle/site-packages/PySide6/Qt/plugins"
+            / "platforms" / name
+        )
+        if not bundle_root.is_dir():
+            return False  # Incomplete or unrelated Gradle distribution.
+        if not source.is_file():
+            raise RuntimeError(
+                f"Qt Android QPA plugin is missing from the Python bundle: {source}"
+            )
+
+        manifest = distribution / "src/main/AndroidManifest.xml"
+        if not manifest.is_file():
+            return False
+        try:
+            manifest_root = ET.parse(manifest).getroot()
+            android_ns = "{http://schemas.android.com/apk/res/android}"
+            if not any(
+                node.get(android_ns + "name") == "android.app.lib_name"
+                and node.get(android_ns + "value") == "main"
+                for node in manifest_root.iter("meta-data")
+            ):
+                return False
+            tree = ET.parse(resources)
+            loader = tree.getroot().find("./array[@name='load_local_libs']")
+            if loader is None:
+                raise RuntimeError(
+                    f"Qt Android deployment has no load_local_libs array: {resources}"
+                )
+        except ET.ParseError as exc:
+            raise RuntimeError(
+                f"Cannot parse Qt Android QPA loader metadata: {exc}"
+            ) from exc
+
+        plugin_entry = f"{arch};{name}"
+        entries = [(item.text or "").strip() for item in loader.findall("item")]
+        main_entry = f"{arch};libmain_arm64-v8a.so"
+        if main_entry not in entries:
+            raise RuntimeError(
+                f"Qt Android loader does not declare {main_entry}: {resources}"
+            )
+        if entries.count(plugin_entry) > 1:
+            raise RuntimeError(f"Duplicate Qt QPA loader entries in {resources}")
+
+        target = distribution / "libs" / arch / name
+        needs_copy = not target.is_file() or target.read_bytes() != source.read_bytes()
+        needs_order = (
+            plugin_entry not in entries
+            or entries.index(plugin_entry) > entries.index(main_entry)
+        )
+        if not needs_copy and not needs_order:
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if needs_copy:
+            shutil.copy2(source, target)
+        if needs_order:
+            for item in tuple(loader.findall("item")):
+                if (item.text or "").strip() == plugin_entry:
+                    loader.remove(item)
+            new_item = ET.Element("item")
+            new_item.text = plugin_entry
+            loader.insert(0, new_item)
+            tree.write(resources, encoding="utf-8", xml_declaration=True)
+        self._warning(
+            "Qt Android QPA plugin supplies the QtActivityDelegate JNI methods; "
+            "Velto packaged it as a native library and added it to QtLoader "
+            "before the main application library."
+        )
+        self._run(
+            [str(distribution / "gradlew"),
+             "assembleDebug" if debug else "bundleRelease"],
+            distribution,
+        )
+        return True
+
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
         root = request.project_root
         if request.entry_point != "main.py":
@@ -340,6 +436,8 @@ class QtAndroidBuilder:
                     "(e.g. missing javac, SDK, or NDK)."
                 ) from exc
         if self._repair_qt_android_loader(artifact, debug=request.debug):
+            artifact = self._latest(root, (".apk", ".aab"))
+        if self._repair_qt_android_qpa(artifact, debug=request.debug):
             artifact = self._latest(root, (".apk", ".aab"))
         return MobileBuildArtifact(artifact, request.target, request.framework,
                                    artifact.suffix.lstrip("."))
