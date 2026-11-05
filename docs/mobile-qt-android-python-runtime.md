@@ -64,3 +64,26 @@ These are copies of the verified builder outputs. Buildozer and Gradle keep
 their original internal artifacts for incremental compilation and debugging.
 The CLI reports the published path, not the internal distribution path.
 Repeated builds atomically replace the published file with the same name.
+
+## Qt application settings and resources
+
+The Qt/Buildozer generated source filter can omit required non-Python
+resources, notably `settings/base.json`. On a Velto Qt Android build, the
+CLI now discovers ordinary project assets under `settings/`, `resources/`,
+`css/`, `images/`, `assets/`, `fonts/`, `components/`, and `views/`.
+It inserts missing supported resources into the generated Gradle project's
+private application tar, **then rebuilds the APK/AAB with Gradle**. This
+preserves proper Android packaging/signing; it does not modify an already
+signed APK.
+
+Files retain their original application-relative paths (for example,
+`settings/base.json`, `resources/base/icons/app.svg`,
+`css/styles.css`). Signing files, dotfiles and secret/credential filenames
+are excluded by default; unrecognized file types are not copied blindly.
+
+The CLI verifies that discovered runtime assets are in the *final APK/AAB*.
+This fixes source availability; native or third-party runtime dependencies
+remain a separate Android compatibility concern.
+
+Test:
+`poetry run pytest tests/application/test_qt_android_assets.py -v`
