@@ -496,5 +496,8 @@ class QtAndroidBuilder:
         self._verify_qt_android_velto_bundle(
             artifact, entry=root / request.entry_point
         )
-        return MobileBuildArtifact(artifact, request.target, request.framework,
-                                   artifact.suffix.lstrip("."))
+        published = self._publish_android_artifact(
+            artifact, root, backend="qt"
+        )
+        return MobileBuildArtifact(published, request.target, request.framework,
+                                   published.suffix.lstrip("."))
