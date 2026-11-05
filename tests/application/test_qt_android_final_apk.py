@@ -67,6 +67,11 @@ def test_complete_root_copy_without_gradle_rebuild(tmp_path, monkeypatch):
             names = set(tar.getnames())
             assert "settings/base.json" in names
             assert "settings/secrets.json" not in names
+            assert tar.getmember("settings").isdir()
+            assert tar.getmember("resources").isdir()
+            assert tar.getmember("resources/linux").isdir()
+            assert tar.getmember("resources/linux/icons").isdir()
+            assert tar.getmember("settings").mode == 0o755
 
 
 def test_original_apk_unchanged_if_signing_fails(tmp_path, monkeypatch):
@@ -137,3 +142,49 @@ def test_repair_previously_modified_plain_tar_without_new_assets(tmp_path, monke
         apk, tmp_path, icon=None,
     ) == (apk, (), False)
     assert commands == []
+
+
+def test_repair_gzip_tar_missing_explicit_parent_directories(tmp_path, monkeypatch):
+    """Regression: gzip alone is insufficient if Android cannot create parents."""
+    apk = tmp_path / "app.apk"
+    with io.BytesIO() as buffer:
+        import gzip
+        with gzip.GzipFile(fileobj=buffer, mode="wb") as zipped:
+            with tarfile.open(fileobj=zipped, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+                for name, data in (
+                    ("main.py", b"print('ok')"),
+                    ("settings/base.json", b'{"framework":"PySide6"}'),
+                    ("resources/base/icons/64.png", b"icon"),
+                ):
+                    member = tarfile.TarInfo(name)
+                    member.size = len(data)
+                    tar.addfile(member, io.BytesIO(data))
+        with ZipFile(apk, "w") as z:
+            z.writestr("assets/private.tar", buffer.getvalue())
+
+    monkeypatch.setattr(android_final_apk, "_android_sdk_tool",
+                        lambda name: Path("/fake-sdk") / name)
+    monkeypatch.setattr(android_final_apk, "_debug_keystore",
+                        lambda: Path("/fake-debug.keystore"))
+
+    def fake_run(args, **kwargs):
+        if Path(args[0]).name == "zipalign":
+            shutil.copyfile(args[-2], args[-1])
+        elif "sign" in args:
+            shutil.copyfile(args[-1], args[args.index("--out") + 1])
+        else:
+            assert "verify" in args
+        from subprocess import CompletedProcess
+        return CompletedProcess(args, 0)
+
+    monkeypatch.setattr(android_final_apk.subprocess, "run", fake_run)
+    assert android_final_apk.finalize_copied_debug_apk(
+        apk, tmp_path, icon=None
+    ) == (apk, (), False)
+    with ZipFile(apk) as zipped:
+        with tarfile.open(fileobj=io.BytesIO(zipped.read("assets/private.tar")),
+                          mode="r:*") as archive:
+            for parent in ("settings", "resources", "resources/base",
+                           "resources/base/icons"):
+                assert archive.getmember(parent).isdir()
+            assert "settings/base.json" in archive.getnames()
