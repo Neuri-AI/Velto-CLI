@@ -14,7 +14,7 @@ from pathlib import Path
 import shutil
 import tarfile
 from typing import Iterator
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
 
 
 PACKAGES = ("velto", "qyro", "psx")
@@ -109,16 +109,18 @@ def verify_velto_apk_sources(artifact: Path) -> None:
     is insufficient evidence of what shipped. p4a stores application source
     in assets/private.tar (some builds name the asset private.mp3).
     """
-    if artifact.suffix.lower() != ".apk":
+    if artifact.suffix.lower() not in (".apk", ".aab"):
         raise RuntimeError(
-            "Cannot verify Velto source modules inside an Android App Bundle "
-            "using the APK verifier; use a debug APK for certification."
+            f"Not an Android APK or AAB for Velto source verification: {artifact}"
         )
     try:
         with ZipFile(artifact) as apk:
             candidates = [
                 name for name in apk.namelist()
-                if name in ("assets/private.tar", "assets/private.mp3")
+                if name in (
+                    "assets/private.tar", "assets/private.mp3",
+                    "base/assets/private.tar", "base/assets/private.mp3",
+                )
             ]
             if len(candidates) != 1:
                 raise RuntimeError(
@@ -130,7 +132,7 @@ def verify_velto_apk_sources(artifact: Path) -> None:
                     member.name.lstrip("./")
                     for member in archive.getmembers() if member.isfile()
                 }
-    except (OSError, ValueError, tarfile.TarError) as exc:
+    except (OSError, ValueError, tarfile.TarError, BadZipFile) as exc:
         raise RuntimeError(
             f"Cannot inspect Android APK private source archive: {exc}"
         ) from exc
