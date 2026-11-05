@@ -375,6 +375,29 @@ class QtAndroidBuilder:
         if uses_velto(entry):
             verify_velto_apk_sources(artifact)
 
+    @staticmethod
+    def _qt_gradle_artifact(
+        root: Path, artifact: Path, *, debug: bool
+    ) -> Path:
+        """Prefer the built Gradle artifact over p4a's copied root-level APK.
+
+        The Qt deploy wrapper copies the APK into the project root and may
+        give it a versioned name. The Gradle distribution is authoritative
+        for QtLoader repairs and for identifying the built Python payload.
+        """
+        base = root / ".buildozer/android/platform"
+        if debug:
+            patterns = ("build-*/dists/*/build/outputs/apk/debug/*.apk",)
+        else:
+            patterns = ("build-*/dists/*/build/outputs/bundle/release/*.aab",)
+        candidates = [
+            item for pattern in patterns for item in base.glob(pattern)
+            if item.is_file()
+        ]
+        if not candidates:
+            return artifact
+        return max(candidates, key=lambda item: item.stat().st_mtime_ns)
+
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
         """Build with temporary framework sources; never modify user code permanently."""
         enabled = (
@@ -459,10 +482,17 @@ class QtAndroidBuilder:
                     "Inspect the preceding toolchain output for its first failure "
                     "(e.g. missing javac, SDK, or NDK)."
                 ) from exc
+        artifact = self._qt_gradle_artifact(
+            root, artifact, debug=request.debug
+        )
         if self._repair_qt_android_loader(artifact, debug=request.debug):
-            artifact = self._latest(root, (".apk", ".aab"))
+            artifact = self._qt_gradle_artifact(
+                root, artifact, debug=request.debug
+            )
         if self._repair_qt_android_qpa(artifact, debug=request.debug):
-            artifact = self._latest(root, (".apk", ".aab"))
+            artifact = self._qt_gradle_artifact(
+                root, artifact, debug=request.debug
+            )
         self._verify_qt_android_velto_bundle(
             artifact, entry=root / request.entry_point
         )
