@@ -21,6 +21,7 @@ import io
 import tarfile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
+from velto_cli.adapters.mobile.qt.android_build_inputs import android_root_inspection_dirs
 from velto_cli.adapters.mobile.qt.android_final_apk import (
     finalize_copied_debug_apk, android_private_version_marker,
 )
@@ -62,6 +63,7 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
     sources: dict[str, Path] = {}
     native: dict[str, str] = {}
     assets = _project_runtime_assets(root)
+    ignored_root_dirs = {entry.name for entry in android_root_inspection_dirs(root)}
     for base, dirs, names in os.walk(root, followlinks=False):
         parent = Path(base)
         for directory in dirs:
@@ -70,8 +72,12 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
                     "Android incremental mode cannot certify symlink directory: "
                     + str(parent / directory)
                 )
-        dirs[:] = sorted(d for d in dirs if d not in _SKIP and
-                         not (parent / d).is_symlink())
+        dirs[:] = sorted(
+            d for d in dirs
+            if d not in _SKIP
+            and (parent != root or d not in ignored_root_dirs)
+            and not (parent / d).is_symlink()
+        )
         for name in sorted(names):
             item = parent / name
             rel = item.relative_to(root).as_posix()
