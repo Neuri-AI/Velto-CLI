@@ -507,10 +507,7 @@ class QtAndroidBuilder:
         svg_required = not request.init_only and project_uses_svg(root)
         if svg_required:
             assert_android_svg_wheel(wheel_pyside)
-            if configure_android_svg_spec(spec):
-                self._notice(
-                    "Configured QtSvg and Android imageformats plugin for SVG assets."
-                )
+            configure_android_svg_spec(spec)
         command = self._command("pyside6-android-deploy")
         args = [command]
         if request.init_only:
@@ -522,7 +519,10 @@ class QtAndroidBuilder:
             # Retain the generated Java/Gradle project when Android fails,
             # so missing classpath JARs can be inspected and diagnosed.
             args.extend([
-                "--extra-modules", "Core,Gui,Widgets,Svg",
+                "--extra-modules", (
+                    "Core,Gui,Widgets,Svg" if svg_required
+                    else "Core,Gui,Widgets"
+                ),
                 "--keep-deployment-files",
             ])
         args.extend([
