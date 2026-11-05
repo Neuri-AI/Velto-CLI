@@ -1,5 +1,7 @@
 """Backend-independent process, output and user-notification helpers."""
+import os
 import shutil
+import tempfile
 from contextlib import nullcontext
 from pathlib import Path
 from velto_cli.application.ports import ProcessRunnerPort, UserInteractionPort
@@ -39,6 +41,37 @@ class MobileBuilderBase:
         code = self._runner.run(command, cwd=str(root))
         if code != 0:
             raise RuntimeError(f"Mobile tool failed (exit {code}): {command[0]}")
+
+    @staticmethod
+    def _publish_android_artifact(
+        source: Path, project_root: Path, *, backend: str
+    ) -> Path:
+        """Publish a finished Android artifact under build/android/<backend>.
+
+        Preserve the original Gradle/Buildozer output for incremental builds
+        and diagnostics. Atomically replace the public copy so failed copies
+        never leave a partially written APK or AAB.
+        """
+        if backend not in ("qt", "kivy"):
+            raise ValueError(f"Unsupported Android output backend: {backend}")
+        if source.suffix.lower() not in (".apk", ".aab") or not source.is_file():
+            raise RuntimeError(f"Missing Android APK/AAB to publish: {source}")
+        output = project_root / "build" / "android" / backend
+        output.mkdir(parents=True, exist_ok=True)
+        target = output / source.name
+        if source.resolve() == target.resolve():
+            return target
+        fd, temp_path = tempfile.mkstemp(
+            prefix=".velto-android-", suffix=source.suffix, dir=output
+        )
+        try:
+            with os.fdopen(fd, "wb") as stream, source.open("rb") as incoming:
+                shutil.copyfileobj(incoming, stream)
+            os.replace(temp_path, target)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+        return target
 
     @staticmethod
     def _latest(root: Path, suffixes: tuple[str, ...]) -> Path:
