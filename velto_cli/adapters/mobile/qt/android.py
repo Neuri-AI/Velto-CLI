@@ -8,6 +8,9 @@ from zipfile import BadZipFile, ZipFile
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
 from velto_cli.adapters.mobile.qt.android_build_inputs import isolate_previous_android_build_outputs
+from velto_cli.adapters.mobile.qt.android_incremental import (
+    try_incremental_build, record_full_build,
+)
 from velto_cli.adapters.mobile.qt.android_svg import (
     project_uses_svg, assert_android_svg_wheel, configure_android_svg_spec,
     verify_android_svg_apk,
@@ -466,13 +469,34 @@ class QtAndroidBuilder:
         return max(candidates, key=lambda item: item.stat().st_mtime_ns)
 
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
-        """Build with temporary framework sources; never modify user code permanently."""
+        """Build normally for native changes; re-sign the APK for source-only changes."""
         enabled = (
             not request.init_only
             and uses_velto(request.project_root / request.entry_point)
         )
+        # The incremental cache is an opt-out implementation detail of debug
+        # builds, never an alternate public API. It runs BEFORE transient
+        # framework packages are staged into the project tree.
+        if enabled and request.debug:
+            quick = try_incremental_build(request.project_root)
+            if quick is not None:
+                self._notice("Reused Android runtime; updated signed APK.")
+                return MobileBuildArtifact(
+                    quick, request.target, request.framework, "apk",
+                )
         with staged_velto_sources(request.project_root, enabled=enabled):
-            return self._pyside_android_impl(request)
+            built = self._pyside_android_impl(request)
+        # Source staging has now been removed. Snapshot the real developer
+        # tree, not the temporary Velto/Qyro/PSX package copies.
+        if enabled and request.debug and built is not None and built.kind == "apk":
+            try:
+                record_full_build(request.project_root, built.path)
+            except (OSError, RuntimeError, ValueError) as exc:
+                self._warning(
+                    "Android incremental cache unavailable; future builds "
+                    f"will use the normal toolchain: {exc}"
+                )
+        return built
 
     def _pyside_android_impl(
         self, request: MobileFreezeRequest
