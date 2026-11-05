@@ -74,7 +74,7 @@ def test_kivy_build_uses_injected_runner(project, monkeypatch):
     runner.run.return_value = 0
     adapter = MobileToolchainFreezer(runner)
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     request = MobileFreezeRequest(
@@ -113,7 +113,7 @@ def test_ios_linux_requires_mac(project, monkeypatch):
 def test_tool_failure_never_returns_artifact(project, monkeypatch):
     (project / "buildozer.spec").write_text("[app]\n")
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     runner = Mock()
@@ -142,16 +142,16 @@ def test_pyside_android_init_resolves_public_archive_wheels(project, monkeypatch
     archive = Mock()
     archive.resolve.return_value = (pyside, shiboken)
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive",
+        "velto_cli.adapters.mobile.qt.android.QtAndroidWheelArchive",
         lambda: archive,
     )
-    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.Path.home", lambda: project)
+    monkeypatch.setattr("velto_cli.adapters.mobile.qt.android.Path.home", lambda: project)
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.distribution_version",
+        "velto_cli.adapters.mobile.qt.android.distribution_version",
         lambda name: "6.12.0",
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: None if name == "qtpip" else "/usr/bin/" + name,
     )
     request = MobileFreezeRequest(
@@ -185,11 +185,11 @@ def test_pyside_android_init_passes_wheels_to_qt(project, monkeypatch):
 
     runner.run.side_effect = run_qt
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.distribution_version",
+        "velto_cli.adapters.mobile.qt.android.distribution_version",
         lambda name: "6.12.0",
     )
     # Qt wheel filename check prevents passing desktop or version-mismatched wheels.
@@ -242,15 +242,15 @@ def test_pyside_prefers_licensed_qtpip_when_available(project, monkeypatch):
     runner.run_capture.side_effect = lambda command, cwd: (qtpip_succeeds(command, cwd), "[INFO] downloaded")
     archive = Mock()
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive", lambda: archive
+        "velto_cli.adapters.mobile.qt.android.QtAndroidWheelArchive", lambda: archive
     )
-    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.Path.home", lambda: project)
+    monkeypatch.setattr("velto_cli.adapters.mobile.qt.android.Path.home", lambda: project)
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.distribution_version",
+        "velto_cli.adapters.mobile.qt.android.distribution_version",
         lambda name: "6.12.0",
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     request = MobileFreezeRequest(
@@ -275,15 +275,15 @@ def test_pyside_falls_back_to_public_on_missing_commercial_license(project, monk
                 project / "community-shiboken6.whl")
     archive.resolve.return_value = expected
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive", lambda: archive
+        "velto_cli.adapters.mobile.qt.android.QtAndroidWheelArchive", lambda: archive
     )
-    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.Path.home", lambda: project)
+    monkeypatch.setattr("velto_cli.adapters.mobile.qt.android.Path.home", lambda: project)
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.distribution_version",
+        "velto_cli.adapters.mobile.qt.android.distribution_version",
         lambda name: "6.12.0",
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     request = MobileFreezeRequest(
@@ -311,16 +311,16 @@ def test_qtpip_zero_exit_without_wheels_uses_public_archive(project, monkeypatch
     shiboken = project / "public-shiboken6.whl"
     archive.resolve.return_value = (pyside, shiboken)
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive",
+        "velto_cli.adapters.mobile.qt.android.QtAndroidWheelArchive",
         lambda: archive,
     )
-    monkeypatch.setattr("velto_cli.adapters.mobile.freezer.Path.home", lambda: project)
+    monkeypatch.setattr("velto_cli.adapters.mobile.qt.android.Path.home", lambda: project)
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.distribution_version",
+        "velto_cli.adapters.mobile.qt.android.distribution_version",
         lambda name: "6.12.0",
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     request = MobileFreezeRequest(
@@ -352,17 +352,17 @@ def test_unlicensed_qtpip_is_warning_with_live_progress(project, monkeypatch):
     archive = Mock()
     archive.resolve.return_value = (project / "pyside.whl", project / "shiboken.whl")
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.QtAndroidWheelArchive", lambda: archive,
+        "velto_cli.adapters.mobile.qt.android.QtAndroidWheelArchive", lambda: archive,
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.Path.home", lambda: project,
+        "velto_cli.adapters.mobile.qt.android.Path.home", lambda: project,
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.distribution_version",
+        "velto_cli.adapters.mobile.qt.android.distribution_version",
         lambda name: "6.12.0",
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     request = MobileFreezeRequest(
@@ -386,7 +386,7 @@ def test_pyside_build_reports_missing_javac_before_download(project, monkeypatch
     (project / "pysidedeploy.spec").write_text("[app]\\n")
     runner = Mock()
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: None if name == "javac" else "/usr/bin/" + name,
     )
     request = MobileFreezeRequest(
@@ -416,11 +416,11 @@ def test_pyside_android_build_keeps_modules_and_gradle_diagnostics(
     for wheel in wheels:
         wheel.touch()
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.distribution_version",
+        "velto_cli.adapters.mobile.qt.android.distribution_version",
         lambda name: "6.12.0",
     )
     request = MobileFreezeRequest(
@@ -484,11 +484,11 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
         return 0
     runner.run.side_effect = invoke
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.shutil.which",
+        "velto_cli.adapters.mobile.common.base.shutil.which",
         lambda name: "/usr/bin/" + name,
     )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.freezer.distribution_version",
+        "velto_cli.adapters.mobile.qt.android.distribution_version",
         lambda name: "6.12.0",
     )
     request = MobileFreezeRequest(
