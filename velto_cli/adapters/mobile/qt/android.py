@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
+from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 from velto_cli.adapters.mobile.qt.android_sources import (
     uses_velto, staged_velto_sources, verify_velto_apk_sources,
@@ -454,12 +455,9 @@ class QtAndroidBuilder:
             if item.is_file()
         ]
         if not candidates:
-            raise RuntimeError(
-                "Qt Android Gradle artifact not found under "
-                f"{base}/build-*/dists/*/build/outputs/. "
-                f"Qt deployment reported {artifact}; cannot safely repair "
-                "or validate a copied APK outside its Gradle distribution."
-            )
+            # PySide6 can clean its generated Gradle project after copying
+            # a complete APK into the project root.
+            return artifact
         return max(candidates, key=lambda item: item.stat().st_mtime_ns)
 
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
@@ -557,58 +555,55 @@ class QtAndroidBuilder:
             artifact = self._qt_gradle_artifact(
                 root, artifact, debug=request.debug
             )
-        # PySide6 may always emit an APK debug build even when --debug was omitted.
-        # Match all post-build Gradle tasks to the actual artifact format.
-        artifact_is_apk = artifact.suffix.lower() == ".apk"
+        # PySide6 can remove its generated Gradle tree before returning.
+        # Complete the copied APK and re-sign it instead of rebuilding Qt.
         icon = select_android_project_icon(root)
-        icon_changed = False
         if icon is not None:
-            icon_changed = self._apply_qt_android_icon(artifact, icon)
             self._notice(
                 f"Android launcher icon: {icon.relative_path} "
                 f"(folder: {icon.folder})"
             )
         else:
-            self._warning(
-                "No project PNG launcher icon found in resources/linux/icons, "
-                "resources/mac/icons or resources/base/icons; "
-                "keeping the Android toolchain default."
-            )
-
-        if enabled := uses_velto(root / request.entry_point):
-            added = complete_qt_android_private_assets(
-                root, artifact, self._run, debug=artifact_is_apk,
+            self._warning("No project PNG launcher icon found; keeping Qt default.")
+        enabled = uses_velto(root / request.entry_point)
+        if _gradle_directory(artifact) is None:
+            if artifact.suffix.lower() != ".apk":
+                raise RuntimeError(
+                    "Qt removed Gradle sources for a release AAB. "
+                    "Cannot safely modify the bundle without Gradle."
+                )
+            artifact, added, icon_changed = finalize_copied_debug_apk(
+                artifact, root, icon=icon.source if icon else None,
             )
             if added:
                 self._notice(
                     f"Included {len(added)} Velto settings/resource files "
-                    "in the Qt Android package."
+                    "in the signed copied Android APK."
                 )
-            elif icon_changed:
-                # Assets already complete: rebuild only to apply the icon.
+            if icon_changed:
+                self._notice("Updated Android launcher icon in verified signed APK.")
+        else:
+            artifact_is_apk = artifact.suffix.lower() == ".apk"
+            icon_changed = False
+            if icon is not None:
+                icon_changed = self._apply_qt_android_icon(
+                    artifact, icon.source
+                )
+            added = ()
+            if enabled:
+                added = complete_qt_android_private_assets(
+                    root, artifact, self._run, debug=artifact_is_apk,
+                )
+            if icon_changed and not added:
                 distribution = _gradle_directory(artifact)
-                if distribution is None:
-                    raise RuntimeError(
-                        f"Missing Qt Android Gradle distribution for {artifact}"
-                    )
                 self._run([
                     _gradle_command(distribution),
                     "assembleDebug" if artifact_is_apk else "bundleRelease",
                 ], distribution)
-        elif icon_changed:
-            distribution = _gradle_directory(artifact)
-            if distribution is None:
-                raise RuntimeError(
-                    f"Missing Qt Android Gradle distribution for {artifact}"
+            if added or icon_changed:
+                artifact = self._qt_gradle_artifact(
+                    root, artifact, debug=request.debug
                 )
-            self._run([
-                _gradle_command(distribution),
-                "assembleDebug" if artifact_is_apk else "bundleRelease",
-            ], distribution)
-        if icon_changed or (enabled and added):
-            artifact = self._qt_gradle_artifact(
-                root, artifact, debug=request.debug
-            )
         self._verify_qt_android_velto_bundle(
             artifact, entry=root / request.entry_point
         )
