@@ -71,7 +71,7 @@ def test_pyside_build_stages_velto_around_deployment(tmp_path, monkeypatch):
         MobileFramework, MobileFreezeRequest, MobileTarget,
     )
 
-    (tmp_path / "main.py").write_text("from velto import VeltoContext\\n")
+    (tmp_path / "main.py").write_text("from velto import VeltoContext\n")
     events = []
 
     @contextmanager
