@@ -81,7 +81,7 @@ def test_svg_apk_verification_checks_native_plugin(tmp_path):
 def test_svg_apk_verification_rejects_missing_plugin(tmp_path):
     apk = tmp_path / "app.apk"
     with ZipFile(apk, "w") as z:
-        z.writestr("assets/private.tar", b"")
+        z.writestr("classes.dex", b"dex")
     with pytest.raises(RuntimeError, match="SVG imageformats plugin"):
         verify_android_svg_apk(apk)
 
