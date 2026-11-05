@@ -77,7 +77,7 @@ class BuildCommand:
             dest="clean",
             action="store_true",
             default=None,
-            help="Clean PyInstaller cache and remove temporary build artifacts before and after building.",
+            help="Force a fresh Android mobile build, or clean PyInstaller cache on desktop.",
         )
 
         parser.add_argument(
@@ -138,6 +138,7 @@ class BuildCommand:
                     project_root=Path.cwd(),
                     init_only=getattr(args, "init_spec", False),
                     debug=bool(getattr(args, "debug", False)),
+                    clean=bool(getattr(args, "clean", False)),
                     wheel_pyside=getattr(args, "wheel_pyside", None),
                     wheel_shiboken=getattr(args, "wheel_shiboken", None),
                 )
