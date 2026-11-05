@@ -25,6 +25,7 @@ class FreezeMobileUseCase:
         project_root: Path | None = None,
         init_only: bool = False,
         debug: bool = False,
+        clean: bool = False,
         wheel_pyside: str | None = None,
         wheel_shiboken: str | None = None,
     ) -> MobileBuildArtifact | None:
@@ -60,7 +61,7 @@ class FreezeMobileUseCase:
         request = MobileFreezeRequest(
             project_root=root, target=target, framework=framework,
             app_name=str(app_name), version=str(version),
-            entry_point=entry_point, debug=debug, init_only=init_only,
+            entry_point=entry_point, debug=debug, init_only=init_only, clean=clean,
             wheel_pyside=resolve_wheel(wheel_pyside),
             wheel_shiboken=resolve_wheel(wheel_shiboken),
         )
