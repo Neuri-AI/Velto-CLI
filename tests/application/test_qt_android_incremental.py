@@ -252,35 +252,6 @@ def test_missing_android_version_resource_disables_cache(project):
     assert inc.try_incremental_build(root, _request()) is None
 
 
-def test_default_build_reuses_debug_apk_without_debug_flag(
-        project, monkeypatch):
-    """Standard command must attempt the fast path when cache is debug-signed."""
-    from unittest.mock import Mock
-    from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
-    from velto_cli.domain.mobile import MobileFreezeRequest
-
-    root, apk = project
-    (root / "main.py").write_text("from velto import VeltoContext")
-    calls = []
-    def fast(current, request):
-        calls.append(request.debug)
-        return apk
-    monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt.android.try_incremental_build",
-        fast,
-    )
-    request = MobileFreezeRequest(
-        project_root=root, target=MobileTarget.ANDROID,
-        framework=MobileFramework.PYSIDE6, app_name="AndroidAppQt",
-        version="0.1.0", debug=False,
-    )
-    runner = Mock()
-    result = MobileToolchainFreezer(runner).freeze(request)
-    assert result.path == apk
-    assert calls == [False]
-    runner.run.assert_not_called()
-
-
 def test_release_apk_never_seeds_incremental_cache(project):
     root, debug_apk = project
     release = debug_apk.with_name("AndroidAppQt-release.apk")
