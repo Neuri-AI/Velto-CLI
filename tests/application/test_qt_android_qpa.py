@@ -46,6 +46,7 @@ def distribution(tmp_path: Path, *, include_plugin=True, entry=None):
 def test_qpa_plugin_is_copied_and_loaded_before_main(tmp_path):
     dist, resources, artifact = distribution(tmp_path)
     runner = Mock()
+    runner.run.return_value = 0
     builder = MobileToolchainFreezer(runner)
     assert builder._repair_qt_android_qpa(artifact, debug=True) is True
     assert (dist / "libs/arm64-v8a" / NAME).read_bytes() == b"QPA-native-plugin"
@@ -78,6 +79,7 @@ def test_qpa_existing_entry_is_reordered(tmp_path):
     (dist / "libs/arm64-v8a").mkdir(parents=True)
     (dist / "libs/arm64-v8a" / NAME).write_bytes(b"QPA-native-plugin")
     runner = Mock()
+    runner.run.return_value = 0
     assert MobileToolchainFreezer(runner)._repair_qt_android_qpa(
         artifact, debug=False
     )
