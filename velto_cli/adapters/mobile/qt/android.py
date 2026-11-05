@@ -1,5 +1,4 @@
 """PySide6 Android wheel resolution, Qt Java bootstrap, and APK packaging."""
-import ast
 import shutil
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
@@ -7,6 +6,9 @@ import xml.etree.ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
+from velto_cli.adapters.mobile.qt.android_sources import (
+    uses_velto, staged_velto_sources, verify_velto_apk_sources,
+)
 from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest, MobileTarget
 
 
@@ -365,62 +367,26 @@ class QtAndroidBuilder:
 
     @staticmethod
     def _requires_velto_runtime(entry: Path) -> bool:
-        """Recognize a public Velto import without executing application code."""
-        try:
-            module = ast.parse(entry.read_text(encoding="utf-8"), filename=str(entry))
-        except (OSError, SyntaxError, UnicodeError):
-            return False
-        for node in ast.walk(module):
-            if isinstance(node, ast.Import) and any(
-                alias.name == "velto" or alias.name.startswith("velto.")
-                for alias in node.names
-            ):
-                return True
-            if isinstance(node, ast.ImportFrom) and (
-                node.module == "velto"
-                or (node.module or "").startswith("velto.")
-            ):
-                return True
-        return False
+        return uses_velto(entry)
 
     def _verify_qt_android_velto_bundle(
         self, artifact: Path, *, entry: Path
     ) -> None:
-        """Never certify an APK missing the public Velto import chain.
-
-        PySide6 Android deploy can build successfully despite not installing
-        packages from the application's pyproject.toml. Verify the actual
-        p4a Python bundle, which is the input embedded in the APK.
-        """
-        if not self._requires_velto_runtime(entry):
-            return
-        distribution = next(
-            (parent for parent in artifact.parents if parent.parent.name == "dists"),
-            None,
-        )
-        if distribution is None:
-            raise RuntimeError(
-                "Cannot locate the Qt Android distribution to verify Velto imports."
-            )
-        bundle = distribution / (
-            "_python_bundle__arm64-v8a/_python_bundle/site-packages"
-        )
-        missing = [
-            name for name in ("velto", "qyro", "psx")
-            if not (bundle / name / "__init__.py").is_file()
-        ]
-        if missing:
-            raise RuntimeError(
-                "Qt Android APK was built but cannot run this Velto application: "
-                "the generated Python bundle is missing "
-                + ", ".join(missing)
-                + ". The generated buildozer.spec requirements and deployment "
-                "recipes must install Android-compatible Velto, Qyro, and PSX "
-                "packages (and their dependencies). No APK success will be "
-                "reported until the Python modules are present."
-            )
+        if uses_velto(entry):
+            verify_velto_apk_sources(artifact)
 
     def _pyside_android(self, request: MobileFreezeRequest) -> MobileBuildArtifact | None:
+        """Build with temporary framework sources; never modify user code permanently."""
+        enabled = (
+            not request.init_only
+            and uses_velto(request.project_root / request.entry_point)
+        )
+        with staged_velto_sources(request.project_root, enabled=enabled):
+            return self._pyside_android_impl(request)
+
+    def _pyside_android_impl(
+        self, request: MobileFreezeRequest
+    ) -> MobileBuildArtifact | None:
         root = request.project_root
         if request.entry_point != "main.py":
             raise ValueError("PySide6 Android deployment requires root main.py")
