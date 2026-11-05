@@ -10,10 +10,11 @@ from __future__ import annotations
 import ast
 from contextlib import contextmanager
 from importlib import util
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
+import tempfile
 import tarfile
-from typing import Iterator
+from typing import Callable, Iterator
 from zipfile import BadZipFile, ZipFile
 
 
@@ -150,3 +151,145 @@ def verify_velto_apk_sources(artifact: Path) -> None:
             + ", ".join(missing)
             + ". Qt's deployment omitted the staged Python packages."
         )
+
+# Runtime files that must retain their normal project-relative locations.
+# Never implicitly ship encrypted secrets, signing material, dotfiles or keys.
+_ASSET_DIRS = frozenset({
+    "settings", "resources", "images", "css", "assets", "fonts",
+    "components", "views",
+})
+_ASSET_SUFFIXES = frozenset({
+    ".json", ".css", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".ico", ".icns", ".ttf", ".otf", ".woff", ".woff2", ".qss",
+    ".qml", ".kv", ".atlas", ".xml", ".html", ".js", ".txt",
+})
+_ASSET_FORBIDDEN_PARTS = frozenset({
+    ".velto", ".git", ".venv", ".buildozer", "__pycache__",
+    "node_modules", "tests", "test", "sign", "signing", "private",
+})
+_ASSET_FORBIDDEN_STEMS = frozenset({
+    "secrets", "secret", ".env", "credentials", "credential",
+    "keystore", "key", "password", "sign",
+})
+
+
+def _project_runtime_assets(root: Path) -> dict[str, Path]:
+    """Discover non-executable application assets, excluding sensitive files."""
+    assets: dict[str, Path] = {}
+    for directory in sorted(_ASSET_DIRS):
+        base = root / directory
+        if not base.is_dir() or base.is_symlink():
+            continue
+        for item in base.rglob("*"):
+            if not item.is_file() or item.is_symlink():
+                continue
+            rel = item.relative_to(root)
+            if any(part.startswith(".") or part.lower() in _ASSET_FORBIDDEN_PARTS
+                   for part in rel.parts):
+                continue
+            if (item.suffix.lower() not in _ASSET_SUFFIXES
+                    or item.stem.lower() in _ASSET_FORBIDDEN_STEMS):
+                continue
+            assets[rel.as_posix()] = item
+    return assets
+
+
+def _gradle_directory(artifact: Path) -> Path | None:
+    for directory in artifact.parents:
+        if (directory / "gradlew").is_file():
+            return directory
+    return None
+
+
+def complete_qt_android_private_assets(
+    root: Path, artifact: Path, run: Callable[[list[str], Path], None],
+    *, debug: bool,
+) -> tuple[str, ...]:
+    """Complete the p4a private tar and rebuild with Gradle, retaining signatures.
+
+    PySide6's generated Buildozer spec may omit JSON, CSS and SVG files.
+    This runs *after* Qt/Buildozer generation, so wrapper regenerations do
+    not silently undo the inclusion policy. Never patch a signed APK in place.
+    """
+    assets = _project_runtime_assets(root)
+    if not assets:
+        return ()
+    gradle = _gradle_directory(artifact)
+    if gradle is None:
+        raise RuntimeError(
+            "Cannot locate Qt Android Gradle project to include runtime assets."
+        )
+    asset_dir = gradle / "src/main/assets"
+    archives = [
+        path for name in ("private.tar", "private.mp3")
+        if (path := asset_dir / name).is_file()
+    ]
+    if len(archives) != 1:
+        raise RuntimeError(
+            "Cannot locate an unambiguous Qt Android private application tar "
+            "under the generated Gradle project's src/main/assets."
+        )
+    private = archives[0]
+    with tarfile.open(private, "r:*") as archive:
+        present = {
+            member.name.removeprefix("./").strip("/")
+            for member in archive.getmembers() if member.isfile()
+        }
+    missing = {name: path for name, path in assets.items() if name not in present}
+    if not missing:
+        return ()
+
+    # Keep the original tar intact if staging fails.
+    with tempfile.NamedTemporaryFile(
+        prefix=".velto-private-", suffix=".tar", dir=asset_dir, delete=False
+    ) as temp:
+        staged = Path(temp.name)
+    try:
+        shutil.copyfile(private, staged)
+        # p4a private.mp3 is normally an uncompressed tar with a media
+        # extension; refuse unsupported compression rather than corrupt it.
+        with tarfile.open(staged, "a") as archive:
+            for name, source in sorted(missing.items()):
+                info = tarfile.TarInfo(name)
+                info.size = source.stat().st_size
+                info.mode = 0o644
+                with source.open("rb") as stream:
+                    archive.addfile(info, stream)
+        staged.replace(private)
+    finally:
+        staged.unlink(missing_ok=True)
+
+    run([str(gradle / "gradlew"),
+         "assembleDebug" if debug else "bundleRelease"], gradle)
+    return tuple(sorted(missing))
+
+
+def verify_qt_android_runtime_assets(artifact: Path, root: Path) -> None:
+    """Fail an Android build if any allowed project runtime asset is absent."""
+    expected = _project_runtime_assets(root)
+    if not expected:
+        return
+    import io
+    try:
+        with ZipFile(artifact) as apk:
+            names = [
+                name for name in apk.namelist()
+                if name in ("assets/private.tar", "assets/private.mp3",
+                            "base/assets/private.tar", "base/assets/private.mp3")
+            ]
+            if len(names) != 1:
+                raise RuntimeError("APK has no unambiguous private application archive")
+            with tarfile.open(fileobj=io.BytesIO(apk.read(names[0])), mode="r:*") as tar:
+                actual = {
+                    m.name.removeprefix("./").strip("/")
+                    for m in tar.getmembers() if m.isfile()
+                }
+    except (OSError, ValueError, BadZipFile, tarfile.TarError) as exc:
+        raise RuntimeError(f"Cannot verify Android app resources: {exc}") from exc
+    missing = sorted(set(expected) - actual)
+    if missing:
+        raise RuntimeError(
+            "Android APK is missing required Velto runtime assets: "
+            + ", ".join(missing[:20])
+        )
+
