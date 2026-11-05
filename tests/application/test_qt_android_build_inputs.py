@@ -52,3 +52,42 @@ def test_symlink_build_dir_is_never_moved(tmp_path):
         with isolate_previous_android_build_outputs(root):
             pass
     assert (root / "build").is_symlink()
+
+
+def test_root_apk_extraction_folder_hidden_and_restored(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "demo-debug.apk").write_bytes(b"apk")
+    extracted = root / "demo-debug/assets/private/velto"
+    extracted.mkdir(parents=True)
+    (extracted / "__init__.py").write_text("read-only extracted package")
+    with isolate_previous_android_build_outputs(root):
+        assert not (root / "demo-debug").exists()
+        assert (root / "demo-debug.apk").exists()
+        assert not (root / "build").exists()
+    assert (extracted / "__init__.py").read_text() == "read-only extracted package"
+
+
+def test_root_apk_inspection_folder_restored_after_failure(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "demo-debug.apk").touch()
+    extracted = root / "demo-debug/assets/private"
+    extracted.mkdir(parents=True)
+    (extracted / "main.py").write_text("old")
+    with pytest.raises(RuntimeError, match="deploy failed"):
+        with isolate_previous_android_build_outputs(root):
+            assert not extracted.exists()
+            raise RuntimeError("deploy failed")
+    assert (extracted / "main.py").read_text() == "old"
+
+
+def test_regular_project_directories_are_not_isolated(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    application = root / "components"
+    application.mkdir()
+    (application / "component.py").write_text("real source")
+    with isolate_previous_android_build_outputs(root):
+        assert (application / "component.py").is_file()
+    assert (application / "component.py").is_file()
