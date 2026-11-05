@@ -90,8 +90,15 @@ def _missing_parent_dirs(archive: tarfile.TarFile) -> set[str]:
     return needed - existing
 
 
-def _amended_private_tar(data: bytes, additions: dict[str, Path]) -> bytes:
+def _amended_private_tar(
+    data: bytes, additions: dict[str, Path], *,
+    replace: dict[str, Path] | None = None,
+    remove: frozenset[str] = frozenset(),
+) -> bytes:
     """Build p4a-compatible gzip USTAR with explicit parent directories."""
+    replace = replace or {}
+    if set(additions) & set(remove) or set(replace) & set(remove):
+        raise ValueError("Conflicting Android archive changes")
     buffer = io.BytesIO()
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as original:
         members = original.getmembers()
@@ -102,7 +109,7 @@ def _amended_private_tar(data: bytes, additions: dict[str, Path]) -> bytes:
         all_paths = [
             m.name.removeprefix("./").strip("/")
             for m in members
-        ] + list(additions)
+        ] + list(additions) + list(replace)
         required_dirs: set[str] = set()
         for path in all_paths:
             components = path.split("/")
@@ -132,9 +139,18 @@ def _amended_private_tar(data: bytes, additions: dict[str, Path]) -> bytes:
                     for member in members:
                         if member.type in (tarfile.XHDTYPE, tarfile.XGLTYPE):
                             continue
+                        name = member.name.removeprefix("./").strip("/")
+                        if name in remove:
+                            continue
                         member.pax_headers = {}
-                        stream = original.extractfile(member) if member.isfile() else None
-                        new.addfile(member, stream)
+                        source = replace.get(name) if member.isfile() else None
+                        if source is not None:
+                            member.size = source.stat().st_size
+                            with source.open("rb") as stream:
+                                new.addfile(member, stream)
+                        else:
+                            stream = original.extractfile(member) if member.isfile() else None
+                            new.addfile(member, stream)
                     for name, path in sorted(additions.items()):
                         if name in existing:
                             continue
@@ -155,6 +171,8 @@ def _amended_private_tar(data: bytes, additions: dict[str, Path]) -> bytes:
 
 def finalize_copied_debug_apk(
     apk: Path, root: Path, *, icon: Path | None,
+    updates: dict[str, Path] | None = None,
+    removals: frozenset[str] = frozenset(),
 ) -> tuple[Path, tuple[str, ...], bool]:
     """Patch project assets and launcher PNG, zipalign, sign and verify.
 
@@ -164,6 +182,7 @@ def finalize_copied_debug_apk(
     if apk.suffix.lower() != ".apk" or not apk.is_file():
         raise RuntimeError(f"Expected an existing Android debug APK: {apk}")
     resources = _project_runtime_assets(root)
+    updates = updates or {}
     with ZipFile(apk) as source:
         private_names = [
             n for n in source.namelist()
@@ -195,7 +214,8 @@ def finalize_copied_debug_apk(
         # Repair already-modified APKs whose content was rewritten as plain
         # TAR, including when all resources and icons are already present.
         private_needs_repair = not original_private.startswith(bytes((0x1f, 0x8b)))
-        if not missing and not icon_changed and not private_needs_repair and not missing_parents:
+        if (not missing and not updates and not removals
+                and not icon_changed and not private_needs_repair and not missing_parents):
             return apk, (), False
 
         if icon is not None and not icons:
@@ -213,7 +233,12 @@ def finalize_copied_debug_apk(
         unsigned = stage / "unsigned.apk"
         aligned = stage / "aligned.apk"
         signed = stage / "signed.apk"
-        updated_private = _amended_private_tar(original_private, missing)
+        extra = {name: path for name, path in updates.items() if name not in present}
+        overwrite = {name: path for name, path in updates.items() if name in present}
+        updated_private = _amended_private_tar(
+            original_private, {**missing, **extra},
+            replace=overwrite, remove=removals,
+        )
         with ZipFile(apk) as original, ZipFile(unsigned, "w") as output:
             for member in original.infolist():
                 name = member.filename
@@ -263,6 +288,8 @@ def finalize_copied_debug_apk(
                 }
             if not set(resources).issubset(included):
                 raise RuntimeError("Signed APK is missing required project assets.")
+            if not set(updates).issubset(included) or (set(removals) & included):
+                raise RuntimeError("Signed APK does not contain requested source changes.")
             if icons and icon_bytes is not None:
                 if any(check.read(name) != icon_bytes for name in icons):
                     raise RuntimeError("Signed APK does not retain the selected icon.")
