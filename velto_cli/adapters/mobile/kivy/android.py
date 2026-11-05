@@ -36,5 +36,8 @@ class KivyAndroidBuilder:
         command = self._command("buildozer")
         self._run([command, "android", "debug" if request.debug else "release"], root)
         artifact = self._latest(root / "bin", (".apk",) if request.debug else (".aab", ".apk"))
-        return MobileBuildArtifact(artifact, request.target, request.framework,
-                                   artifact.suffix.lstrip("."))
+        published = self._publish_android_artifact(
+            artifact, root, backend="kivy"
+        )
+        return MobileBuildArtifact(published, request.target, request.framework,
+                                   published.suffix.lstrip("."))
