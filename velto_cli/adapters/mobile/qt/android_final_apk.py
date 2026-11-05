@@ -30,12 +30,15 @@ def _android_sdk_tool(name: str) -> Path:
     ))
     # Prefer build-tools belonging to the actual SDK on the host.
     for sdk in candidates:
-        build_tools = sdk / "build-tools"
-        if build_tools.is_dir():
-            for version in sorted(build_tools.iterdir(), reverse=True):
-                found = version / name
-                if found.is_file():
-                    return found
+        # Some PySide6 installers nest the SDK one directory below its
+        # configured download root.
+        for base in (sdk, sdk / "android-sdk", sdk / "sdk"):
+            build_tools = base / "build-tools"
+            if build_tools.is_dir():
+                for version in sorted(build_tools.iterdir(), reverse=True):
+                    found = version / name
+                    if found.is_file():
+                        return found
     executable = shutil.which(name)
     if executable:
         return Path(executable)
