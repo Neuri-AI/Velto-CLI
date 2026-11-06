@@ -508,31 +508,25 @@ class QtAndroidBuilder:
             _release_credentials()
         with staged_velto_sources(request.project_root, enabled=enabled):
             built = self._pyside_android_impl(request)
-        # Source staging has now been removed. Snapshot the real developer
-        # tree, not the temporary Velto/Qyro/PSX package copies.
+        # Snapshot unprotected sources before transforming the published APK.
+        # A cache-write failure must never result in an unprotected artifact
+        # when the user explicitly requested source protection.
         if enabled and request.debug and built is not None and built.kind == "apk":
-            try:
-                if request.protect_source:
-                    # Seed cache from the raw, source-bearing deployment before
-                    # publishing a separate signed protected APK.
-                    from velto_cli.adapters.mobile.qt.android_incremental import _cache_root
-                    from velto_cli.adapters.mobile.qt.android_incremental import _scan, _store, _request_key
-                    _, hashes, native = _scan(request.project_root)
-                    import tempfile
-                    import shutil as _shutil
-                    with tempfile.TemporaryDirectory(prefix="velto-unprotected-") as temp:
-                        raw = Path(temp) / built.path.name
-                        _shutil.copy2(built.path, raw)
-                        # Source files must remain complete and marker verifiable.
-                        record_full_build(request.project_root, built.path, request)
-                        protect_android_apk(built.path, request.project_root, debug=True)
-                else:
+            if request.protect_source:
+                try:
                     record_full_build(request.project_root, built.path, request)
-            except (OSError, RuntimeError, ValueError) as exc:
-                self._warning(
-                    "Android incremental cache unavailable; future builds "
-                    f"will use the normal toolchain: {exc}"
-                )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self._warning(f"Android incremental cache unavailable: {exc}")
+                protect_android_apk(built.path, request.project_root, debug=True)
+                self._notice("Protected Android debug APK signed and verified.")
+            else:
+                try:
+                    record_full_build(request.project_root, built.path, request)
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self._warning(
+                        "Android incremental cache unavailable; future builds "
+                        f"will use the normal toolchain: {exc}"
+                    )
         return built
 
     def _pyside_android_impl(
