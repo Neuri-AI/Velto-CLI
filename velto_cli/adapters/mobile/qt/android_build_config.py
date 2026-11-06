@@ -10,9 +10,11 @@ import tempfile
 from typing import Iterator
 
 ANDROID_CONFIG = "settings/android.json"
+ANDROID_SIGN_CONFIG = "settings/sign.json"
 # Extend this set as new host-only files are discovered. Never package them.
 ALWAYS_EXCLUDED = frozenset({
     ANDROID_CONFIG,
+    ANDROID_SIGN_CONFIG,
     "*.jks", "*.keystore", "*.p12", "*.pfx",
 })
 _IGNORED_TREES = frozenset({
@@ -35,8 +37,11 @@ def load_android_build_config(root: Path) -> dict:
         raise ValueError(f"{ANDROID_CONFIG} must be a JSON object")
     if "protect_source" in value and type(value["protect_source"]) is not bool:
         raise ValueError("android.json protect_source must be boolean")
-    if "signing" in value and not isinstance(value["signing"], dict):
-        raise ValueError("android.json signing must be an object")
+    if "signing" in value:
+        raise ValueError(
+            "Android signing belongs in settings/sign.json under the android key, "
+            "not in settings/android.json"
+        )
     patterns = value.get("exclude", [])
     if not isinstance(patterns, list) or any(
         not isinstance(pattern, str) or not pattern.strip()
@@ -48,13 +53,41 @@ def load_android_build_config(root: Path) -> dict:
     return value
 
 
+def load_android_signing(root: Path) -> dict:
+    """Load the Android section of the existing host-only sign.json profile.
+
+    Preserve the unrelated Windows and macOS signing sections. Never merge
+    this config with application runtime settings.
+    """
+    path = root / ANDROID_SIGN_CONFIG
+    if not path.exists():
+        return {}
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{ANDROID_SIGN_CONFIG} must be a regular file")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Cannot read {ANDROID_SIGN_CONFIG}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{ANDROID_SIGN_CONFIG} must be a JSON object")
+    # The sign command accepts the platform keys directly. Also recognize
+    # its older {"sign": {...}} wrapper to avoid breaking older projects.
+    data = data.get("sign", data)
+    if not isinstance(data, dict):
+        raise ValueError(f"{ANDROID_SIGN_CONFIG} sign must be an object")
+    android = data.get("android", {})
+    if not isinstance(android, dict):
+        raise ValueError(f"{ANDROID_SIGN_CONFIG} android must be an object")
+    return android
+
+
 def android_exclusion_patterns(root: Path) -> tuple[str, ...]:
     config = load_android_build_config(root)
     patterns = set(ALWAYS_EXCLUDED)
     patterns.update(config.get("exclude", []))
     # An explicitly configured keystore inside the project must never be
     # shipped, regardless of its extension or location.
-    signing = config.get("signing", {})
+    signing = load_android_signing(root)
     stored = signing.get("keystore")
     if isinstance(stored, str) and stored:
         location = Path(stored).expanduser()
