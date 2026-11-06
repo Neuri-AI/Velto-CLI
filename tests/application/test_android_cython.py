@@ -157,18 +157,70 @@ def test_target_header_cache_separates_distinct_android_libpython(tmp_path, monk
     ) == [tmp_path / "cache" / ("a" * 64) / "include"]
 
 
-def test_p4a_force_build_environment_scope(tmp_path, monkeypatch):
-    import os
-    from velto_cli.adapters.mobile.qt.android_build_inputs import (
-        force_p4a_native_rebuild,
+
+def test_p4a_native_recovery_only_invokes_create(tmp_path, monkeypatch):
+    import json
+    from velto_cli.adapters.mobile.qt import android_p4a_headers
+
+    storage = tmp_path / ".buildozer/android/platform/build-arm64-v8a"
+    dist = storage / "dists/AndroidAppQt"
+    dist.mkdir(parents=True)
+    (dist / "dist_info.json").write_text(json.dumps({
+        "recipes": [
+            "hostpython3", "libffi", "openssl", "sqlite3", "python3",
+            "genericndkbuild", "shiboken6", "pyside6",
+        ]
+    }))
+    (tmp_path / "deployment/recipes").mkdir(parents=True)
+    monkeypatch.setattr(
+        android_p4a_headers, "_ndk_root", lambda: tmp_path / "ndk",
     )
-    monkeypatch.delenv("APP_P4A_EXTRA_ARGS", raising=False)
-    with force_p4a_native_rebuild(True):
-        assert os.environ["APP_P4A_EXTRA_ARGS"] == "--force-build"
-    assert "APP_P4A_EXTRA_ARGS" not in os.environ
-    monkeypatch.setenv("APP_P4A_EXTRA_ARGS", "--debug")
-    with force_p4a_native_rebuild(True):
-        assert os.environ["APP_P4A_EXTRA_ARGS"] == "--debug --force-build"
-    assert os.environ["APP_P4A_EXTRA_ARGS"] == "--debug"
-    with force_p4a_native_rebuild(False):
-        assert os.environ["APP_P4A_EXTRA_ARGS"] == "--debug"
+    monkeypatch.setattr(
+        android_p4a_headers, "_android_sdk_root", lambda: tmp_path / "sdk",
+    )
+    cmd = android_p4a_headers._create_command(tmp_path, 28)
+    assert cmd[3] == "create"
+    assert "--force-build" in cmd
+    assert "--local-recipes" in cmd
+    assert "--qt-libs" not in cmd
+    assert "--load-local-libs" not in cmd
+    assert "apk" not in cmd
+
+
+def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch):
+    import json
+    from subprocess import CompletedProcess
+    from velto_cli.adapters.mobile.qt import android_p4a_headers
+
+    storage = tmp_path / ".buildozer/android/platform/build-arm64-v8a"
+    dist = storage / "dists/AndroidAppQt"
+    dist.mkdir(parents=True)
+    (dist / "dist_info.json").write_text(json.dumps({
+        "recipes": ["python3", "pyside6", "shiboken6"],
+    }))
+    (tmp_path / "deployment/recipes").mkdir(parents=True)
+    monkeypatch.setattr(
+        android_p4a_headers, "_ndk_root", lambda: tmp_path / "ndk",
+    )
+    monkeypatch.setattr(
+        android_p4a_headers, "_android_sdk_root", lambda: tmp_path / "sdk",
+    )
+    monkeypatch.setenv("APP_P4A_EXTRA_ARGS", "--force-build")
+    commands = []
+    def mock_run(cmd, **kwargs):
+        commands.append((cmd, kwargs["env"]))
+        include = (
+            storage / "build/other_builds/python3/arm64-v8a__ndk_target_28"
+            / "python3/android-build/android-root/include/python3.14"
+        )
+        include.mkdir(parents=True)
+        (include / "Python.h").write_text("native")
+        (include / "pyconfig.h").write_text("target")
+        return CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(android_p4a_headers.subprocess, "run", mock_run)
+    android_p4a_headers.recover_android_python_headers(tmp_path, (3, 14))
+    assert len(commands) == 1
+    assert commands[0][0][3] == "create"
+    assert "APP_P4A_EXTRA_ARGS" not in commands[0][1]
+    assert "--force-build" in commands[0][0]
