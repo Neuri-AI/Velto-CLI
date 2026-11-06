@@ -265,3 +265,70 @@ def test_full_build_guard_never_moves_excluded_user_files(tmp_path):
     assert sign.is_file()
     assert android.is_file()
     assert not list(tmp_path.parent.glob(".velto-android-excluded-*"))
+
+
+def test_full_android_stage_keeps_original_files_and_excludes_secrets(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_build_inputs import staged_android_project
+    root = tmp_path / "AndroidAppQt"
+    (root / "settings").mkdir(parents=True)
+    (root / "components").mkdir()
+    (root / "main.py").write_text("print('test')\n")
+    (root / "components/test.py").write_text("COMPONENT = 1\n")
+    (root / "pysidedeploy.spec").write_text("[app]\n")
+    (root / "settings/base.json").write_text('{"framework":"pyside6"}')
+    (root / "settings/android.json").write_text(
+        '{"protect_source": true, "exclude": ["settings/development.json"]}'
+    )
+    (root / "settings/development.json").write_text('{"debug":true}')
+    (root / "settings/sign.json").write_text('{"android":{"alias":"release"}}')
+    (root / "settings/secrets.json").write_text('{"token":"private"}')
+    (root / "build").mkdir()
+    (root / "build/old.apk").write_bytes(b"old")
+    (root / ".buildozer").mkdir()
+    (root / ".buildozer/old.txt").write_text("old")
+
+    with staged_android_project(root) as stage:
+        assert stage != root
+        assert (stage / "main.py").is_file()
+        assert (stage / "components/test.py").is_file()
+        assert (stage / "pysidedeploy.spec").is_file()
+        assert (stage / "settings/base.json").is_file()
+        for name in ("android.json", "development.json", "sign.json", "secrets.json"):
+            assert not (stage / "settings" / name).exists()
+            assert (root / "settings" / name).is_file()
+        assert not (stage / "build").exists()
+        assert not (stage / ".buildozer").exists()
+        staging_parent = stage.parent
+    assert not staging_parent.exists()
+    assert (root / "build/old.apk").read_bytes() == b"old"
+    assert (root / ".buildozer/old.txt").read_text() == "old"
+
+
+def test_android_stage_cleanup_after_failure_does_not_touch_user_files(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_build_inputs import staged_android_project
+    root = tmp_path / "app"
+    (root / "settings").mkdir(parents=True)
+    sign = root / "settings/sign.json"
+    sign.write_text('{"mac": {"identity":"example"}}')
+    stage_parent = None
+    with pytest.raises(RuntimeError, match="toolchain error"):
+        with staged_android_project(root) as stage:
+            stage_parent = stage.parent
+            assert sign.is_file()
+            raise RuntimeError("toolchain error")
+    assert stage_parent is not None and not stage_parent.exists()
+    assert sign.is_file()
+
+
+def test_android_stage_rejects_symlinked_source_without_modification(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_build_inputs import staged_android_project
+    root = tmp_path / "app"
+    root.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("SECRET = True")
+    (root / "other.py").symlink_to(outside)
+    with pytest.raises(RuntimeError, match="symlinked project file"):
+        with staged_android_project(root):
+            pass
+    assert (root / "other.py").is_symlink()
+    assert outside.read_text() == "SECRET = True"
