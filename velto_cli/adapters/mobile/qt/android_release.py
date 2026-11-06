@@ -25,6 +25,7 @@ from velto_cli.adapters.mobile.qt.android_final_apk import (
     replace_android_private_version,
 )
 from velto_cli.adapters.mobile.qt.android_sources import PACKAGES
+from velto_cli.adapters.mobile.qt.android_bytecode import compile_android_bytecode
 from velto_cli.adapters.mobile.qt.android_build_config import (
     load_android_signing, verify_android_exclusions,
 )
@@ -47,38 +48,24 @@ def _owned(name: str, root: Path) -> bool:
     )
 
 
+def _prepare_bytecode_source(source: bytes, name: str) -> bytes:
+    """Precompile project PSX on the build host; leave framework imports alone."""
+    if name.startswith(tuple(package + "/" for package in PACKAGES)):
+        return source
+    from psx.markup.transform import transform_source
+    # precompiled=True also sets the decorator marker correctly after
+    # __future__ imports, without depending on inspect at Android runtime.
+    return transform_source(
+        source.decode("utf-8"), filename=name, precompiled=True,
+    ).source.encode("utf-8")
+
+
 def _compile_bytecode(source: bytes, name: str) -> bytes:
-    """Build sourceless CPython bytecode with transformed project PSX."""
-    if not name.startswith(tuple(package + "/" for package in PACKAGES)):
-        if b"psx(" in source:
-            from psx.markup.transform import transform_source
-            source = transform_source(
-                source.decode("utf-8"), filename=name
-            ).source.encode("utf-8")
-        # Mark project modules as precompiled so @component does not use
-        # inspect.getsourcelines() on absent .py files at runtime.
-        tree = ast.parse(source, filename=name)
-        index = 0
-        if (tree.body and isinstance(tree.body[0], ast.Expr)
-                and isinstance(tree.body[0].value, ast.Constant)
-                and isinstance(tree.body[0].value.value, str)):
-            index = 1
-        while (index < len(tree.body)
-               and isinstance(tree.body[index], ast.ImportFrom)
-               and tree.body[index].module == "__future__"):
-            index += 1
-        tree.body.insert(index, ast.Assign(
-            targets=[ast.Name(id="__psx_build_precompiled__", ctx=ast.Store())],
-            value=ast.Constant(value=True),
-        ))
-        code = compile(
-            ast.fix_missing_locations(tree), name, "exec",
-            optimize=2, dont_inherit=True,
-        )
-    else:
-        code = compile(source, name, "exec", optimize=2, dont_inherit=True)
+    """Local-only bytecode helper for tests; Android uses target interpreter."""
+    prepared = _prepare_bytecode_source(source, name)
+    code = compile(prepared, name, "exec", optimize=2, dont_inherit=True)
     return _bootstrap_external._code_to_timestamp_pyc(
-        code, mtime=0, source_size=len(source)
+        code, mtime=0, source_size=len(prepared)
     )
 
 
@@ -122,7 +109,10 @@ def _private_entry(name: str) -> bool:
     return name in ("assets/private.tar", "assets/private.mp3")
 
 
-def protect_android_apk(apk: Path, root: Path, *, debug: bool) -> Path:
+def protect_android_apk(
+    apk: Path, root: Path, *, debug: bool,
+    toolchain_root: Path | None = None,
+) -> Path:
     """Rewrite source files into same-version sourceless bytecode and re-sign.
 
     The caller must supply a real release APK. Signatures and bytecode format
@@ -141,12 +131,12 @@ def protect_android_apk(apk: Path, root: Path, *, debug: bool) -> Path:
             for name in target_apk.namelist()
             if (m := re.search(r"/libpython(\d+)\.(\d+)\.so$", name))
         }
-    if embedded != {sys.version_info[:2]}:
+    if len(embedded) != 1:
         raise RuntimeError(
-            "Cannot safely use host Python bytecode for Android target: "
-            f"host={sys.version_info[:2]}, APK interpreter(s)={sorted(embedded)}. "
-            "Release requires a matching Python interpreter."
+            "Cannot determine one unambiguous CPython version from the Android "
+            f"APK libraries: {sorted(embedded)}"
         )
+    target_version = next(iter(embedded))
     if debug:
         store, alias, store_password, key_password = (
             _debug_keystore(), "androiddebugkey", "android", "android"
@@ -169,6 +159,7 @@ def protect_android_apk(apk: Path, root: Path, *, debug: bool) -> Path:
     with tempfile.TemporaryDirectory(prefix="velto-release-") as td:
         temp = Path(td)
         compiled: dict[str, Path] = {}
+        jobs: list[tuple[str, Path, Path]] = []
         protected: set[str] = set()
         with tarfile.open(fileobj=io.BytesIO(original_private), mode="r:*") as tar:
             members = [m for m in tar.getmembers() if m.isfile()]
@@ -182,11 +173,17 @@ def protect_android_apk(apk: Path, root: Path, *, debug: bool) -> Path:
                 payload = file.read()
                 target = temp / "compiled" / (name + "c")
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(_compile_bytecode(payload, name))
+                source_path = temp / "sources" / name
+                source_path.parent.mkdir(parents=True, exist_ok=True)
+                source_path.write_bytes(_prepare_bytecode_source(payload, name))
+                jobs.append((name, source_path, target))
                 compiled[name + "c"] = target
                 protected.add(name)
         if "main.py" not in protected:
             raise RuntimeError("Android private archive is missing project main.py")
+        compile_android_bytecode(
+            jobs, target_version, toolchain_root=toolchain_root,
+        )
         source_stub = temp / "main.py"
         source_stub.write_bytes(_bootstrap())
         private = _amended_private_tar(
@@ -275,6 +272,10 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
                 raise RuntimeError("Protected release contains an unverified main.py")
 
 
-def protect_android_release_apk(apk: Path, root: Path) -> Path:
+def protect_android_release_apk(
+    apk: Path, root: Path, *, toolchain_root: Path | None = None,
+) -> Path:
     """Backward-compatible release entry point; never uses a debug key."""
-    return protect_android_apk(apk, root, debug=False)
+    return protect_android_apk(
+        apk, root, debug=False, toolchain_root=toolchain_root,
+    )
