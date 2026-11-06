@@ -79,3 +79,12 @@ When matching headers are available, Velto copies them into
 `~/.velto/mobile/android/qt/target-python-headers/<sha256-of-libpython>/`
 for later reuse. Sources are copied rather than moved. If recovery
 fails, it stops; no macOS headers or .pyc fallback are accepted.
+
+## Qt distribution artifact validation
+
+Some PySide6/p4a builds place `libpython3.14.so` exclusively inside the
+signed APK's `lib/arm64-v8a/` directory, rather than retaining it under
+`dists/<app>/libs/arm64-v8a/`. Header recovery validates the real
+`build/outputs/apk/**/*.apk` ZIP library entries and the Python private
+archive when distribution metadata is absent; it does not insist on
+intermediate library copies being present.
