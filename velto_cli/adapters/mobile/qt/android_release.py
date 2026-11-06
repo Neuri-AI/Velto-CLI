@@ -24,7 +24,7 @@ from velto_cli.adapters.mobile.qt.android_final_apk import (
 )
 from velto_cli.adapters.mobile.qt.android_sources import PACKAGES
 from velto_cli.adapters.mobile.qt.android_cython import (
-    compile_android_extensions, output_name,
+    compile_android_extensions, output_name, _is_elf_arm64,
 )
 from velto_cli.adapters.mobile.qt.android_build_config import (
     load_android_signing, verify_android_exclusions,
@@ -277,6 +277,20 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
             if forbidden_pyc:
                 raise RuntimeError("Protected APK contains .pyc application modules: "
                                    + ", ".join(forbidden_pyc[:12]))
+            # A renamed macOS/Linux .so is not an Android extension. Validate
+            # every protected native module, not just the bootstrap.
+            for member in tar.getmembers():
+                name = member.name.removeprefix("./").strip("/")
+                if not member.isfile() or not name.endswith(".so"):
+                    continue
+                owned_py = name[:-3] + ".py"
+                if not _owned(owned_py, root):
+                    continue
+                payload = tar.extractfile(member)
+                if payload is None or not _is_elf_arm64(payload.read(32)):
+                    raise RuntimeError(
+                        "Protected APK contains non-Android Cython extension: " + name
+                    )
             bootstrap = tar.extractfile("main.py")
             if bootstrap is None or bootstrap.read() != _bootstrap():
                 raise RuntimeError("Protected release contains an unverified main.py")
