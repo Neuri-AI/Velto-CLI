@@ -81,6 +81,13 @@ bytecode using the matching native `hostpython3` from the Android build when
 available. For incremental builds, a matching host Python installation can
 be selected automatically or provided using `VELTO_ANDROID_BYTECODE_PYTHON`
 (e.g. a Python 3.14 executable when the APK embeds Python 3.14).
+When the temporary p4a hostpython is already gone and Conda is available,
+Velto can provision Python 3.14 into the persistent
+`~/.velto/mobile/android/qt/bytecode-python/3.14` build cache. This does not
+modify the active Conda environment, project files, or source-exclusion rules.
+The initial installation requires access to configured Conda package channels.
+If automatic provisioning fails, Velto reports the Conda error rather than
+writing incompatible bytecode.
 The APK must include a compatible CPython interpreter. Existing
 AAB protection and native compilation with Nuitka are **not implemented**.
 Do not label these artifacts as Nuitka-protected.
