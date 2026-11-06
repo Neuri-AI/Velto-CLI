@@ -13,7 +13,7 @@ from velto_cli.adapters.mobile.qt.android_release import (
 )
 from velto_cli.adapters.mobile.qt.android_build_inputs import isolate_previous_android_build_outputs
 from velto_cli.adapters.mobile.qt.android_build_config import (
-    isolate_android_excluded_sources, verify_android_exclusions,
+    verify_android_exclusions,
 )
 from velto_cli.adapters.mobile.qt.android_incremental import (
     try_incremental_build, record_full_build,
@@ -597,7 +597,14 @@ class QtAndroidBuilder:
             for suffix in ("*.apk", "*.aab")
             for p in root.glob(suffix) if p.is_file()
         }
-        with isolate_previous_android_build_outputs(root), isolate_android_excluded_sources(root):
+        # Never relocate user-owned excluded files. The third-party toolchain
+        # lacks a reliable exclusion hook; refuse unsafe full builds instead
+        # of moving files and risking data loss on interruption.
+        from velto_cli.adapters.mobile.qt.android_build_config import (
+            assert_android_full_build_safe,
+        )
+        assert_android_full_build_safe(root)
+        with isolate_previous_android_build_outputs(root):
             try:
                 self._run(args, root)
             except RuntimeError:
