@@ -535,7 +535,7 @@ class QtAndroidBuilder:
                     record_full_build(request.project_root, built.path, request)
                 except (OSError, RuntimeError, ValueError) as exc:
                     self._warning(f"Android incremental cache unavailable: {exc}")
-            if enabled and request.protect_source and request.debug:
+            if request.protect_source and request.debug:
                 protect_android_apk(
                     built.path, request.project_root, debug=True,
                     toolchain_root=stage,
@@ -544,7 +544,7 @@ class QtAndroidBuilder:
                     ).get("obfuscate", False),
                 )
                 self._notice("Cython Android debug extensions signed and verified.")
-            elif enabled and not request.debug:
+            elif not request.debug:
                 protect_android_release_apk(
                     built.path, request.project_root, toolchain_root=stage,
                     obfuscate=load_android_build_config(
