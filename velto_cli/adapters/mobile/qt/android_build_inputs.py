@@ -151,3 +151,30 @@ def staged_android_project(root: Path) -> Iterator[Path]:
                     content.replace(str(root), str(stage)), encoding="utf-8"
                 )
         yield stage
+
+
+@contextmanager
+def force_p4a_native_rebuild(enabled: bool) -> Iterator[None]:
+    """Rebuild p4a's Python distribution, preserving caller environment.
+
+    Buildozer maps APP_P4A_EXTRA_ARGS to [app] p4a.extra_args and passes
+    it to python-for-android. --force-build refuses cached distributions.
+    Scope overrides to the initial Android deploy subprocess only.
+    """
+    if not enabled:
+        yield
+        return
+    import os
+    key = "APP_P4A_EXTRA_ARGS"
+    old = os.environ.get(key)
+    args = old or ""
+    if "--force-build" not in args.split():
+        args = (args + " --force-build").strip()
+    os.environ[key] = args
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = old
