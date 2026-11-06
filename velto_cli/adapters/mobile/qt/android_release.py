@@ -26,7 +26,7 @@ from velto_cli.adapters.mobile.qt.android_final_apk import (
 )
 from velto_cli.adapters.mobile.qt.android_sources import PACKAGES
 from velto_cli.adapters.mobile.qt.android_build_config import (
-    load_android_build_config, verify_android_exclusions,
+    load_android_signing, verify_android_exclusions,
 )
 
 
@@ -92,13 +92,8 @@ def _bootstrap() -> bytes:
 
 
 def _release_credentials(root: Path | None = None) -> tuple[Path, str, str, str]:
-    """Resolve signing inputs without exposing them to the Android build.
-
-    Environment variables override settings/android.json so CI may avoid
-    storing secrets on disk. Relative keystore paths are project-relative.
-    """
-    config = load_android_build_config(root) if root is not None else {}
-    signing = config.get("signing", {})
+    """Resolve signing from settings/sign.json android and optional CI overrides."""
+    signing = load_android_signing(root) if root is not None else {}
     def value(env: str, field: str) -> str:
         provided = os.environ.get(env) or signing.get(field, "")
         if not isinstance(provided, str):
@@ -112,7 +107,7 @@ def _release_credentials(root: Path | None = None) -> tuple[Path, str, str, str]
         raise RuntimeError(
             "Android Release signing requires signing.keystore, signing.alias, "
             "signing.keystore_password and signing.key_password in "
-            "settings/android.json or equivalent VELTO_ANDROID_* environment variables"
+            "settings/sign.json under android or equivalent VELTO_ANDROID_* environment variables"
         )
     store = Path(store_value).expanduser()
     if not store.is_absolute():
