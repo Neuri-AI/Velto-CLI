@@ -248,3 +248,20 @@ def test_sign_json_leak_in_apk_is_rejected(tmp_path):
         z.writestr("assets/private.tar", private.getvalue())
     with pytest.raises(RuntimeError, match="excluded build-only files"):
         verify_android_exclusions(apk, tmp_path)
+
+
+def test_full_build_guard_never_moves_excluded_user_files(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_build_config import (
+        assert_android_full_build_safe,
+    )
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    sign = settings / "sign.json"
+    sign.write_text('{"android": {"alias": "demo"}}')
+    android = settings / "android.json"
+    android.write_text('{"exclude": ["settings/sign.json"]}')
+    with pytest.raises(RuntimeError, match="Files were NOT moved or deleted"):
+        assert_android_full_build_safe(tmp_path)
+    assert sign.is_file()
+    assert android.is_file()
+    assert not list(tmp_path.parent.glob(".velto-android-excluded-*"))
