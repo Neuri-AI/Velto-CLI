@@ -48,7 +48,7 @@ def test_verifier_accepts_cython_modules_and_entry_bootstrap(tmp_path):
     apk = tmp_path / "release.apk"
     _apk(apk, {
         "main.py": _bootstrap(),
-        "main.pyc": _compile_bytecode(b"PASS = True\n", "main.py"),
+        "main.so": b"native ARM64 module fixture",
         "components/test.so": b"fake compiled module",
     })
     verify_android_release_source_protection(apk, root)
@@ -60,7 +60,7 @@ def test_verifier_rejects_unprotected_framework_sources(tmp_path):
     apk = tmp_path / "release.apk"
     _apk(apk, {
         "main.py": _bootstrap(),
-        "main.pyc": _compile_bytecode(b"PASS = True\n", "main.py"),
+        "main.so": b"native ARM64 module fixture",
         "velto/__init__.py": b"EXPOSED = True\n",
     })
     with pytest.raises(RuntimeError, match="exposes application Python"):
@@ -216,14 +216,14 @@ def test_cython_module_names_and_library_paths():
 
 def test_cython_preparation_preserves_main_guard_on_import():
     from velto_cli.adapters.mobile.qt.android_release import (
-        _prepare_bytecode_source, _bootstrap,
+        _prepare_cython_source, _bootstrap,
     )
     source = (
         b"def boot(): return 'ready'\n"
         b"if __name__ == '__main__':\n"
         b"    boot()\n"
     )
-    prepared = _prepare_bytecode_source(source, "main.py")
+    prepared = _prepare_cython_source(source, "main.py")
     import ast
     ast.parse(prepared)
     assert b"if True:" in prepared
