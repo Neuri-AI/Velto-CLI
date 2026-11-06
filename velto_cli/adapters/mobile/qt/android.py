@@ -12,6 +12,9 @@ from velto_cli.adapters.mobile.qt.android_release import (
     verify_android_release_source_protection,
 )
 from velto_cli.adapters.mobile.qt.android_build_inputs import isolate_previous_android_build_outputs
+from velto_cli.adapters.mobile.qt.android_build_config import (
+    isolate_android_excluded_sources, verify_android_exclusions,
+)
 from velto_cli.adapters.mobile.qt.android_incremental import (
     try_incremental_build, record_full_build,
 )
@@ -505,7 +508,7 @@ class QtAndroidBuilder:
         if enabled and not request.debug and not request.init_only:
             # Validate release signing before downloading Qt wheels or running
             # Buildozer. Never spend a full compile on an unsignable APK.
-            _release_credentials()
+            _release_credentials(request.project_root)
         with staged_velto_sources(request.project_root, enabled=enabled):
             built = self._pyside_android_impl(request)
         # Snapshot unprotected sources before transforming the published APK.
@@ -594,7 +597,7 @@ class QtAndroidBuilder:
             for suffix in ("*.apk", "*.aab")
             for p in root.glob(suffix) if p.is_file()
         }
-        with isolate_previous_android_build_outputs(root):
+        with isolate_previous_android_build_outputs(root), isolate_android_excluded_sources(root):
             try:
                 self._run(args, root)
             except RuntimeError:
@@ -707,6 +710,7 @@ class QtAndroidBuilder:
             artifact = protect_android_release_apk(artifact, root)
             verify_android_release_source_protection(artifact, root)
             self._notice("Protected Android release bytecode verified and APK signed.")
+        verify_android_exclusions(artifact, root)
         published = self._publish_android_artifact(
             artifact, root, backend="qt"
         )
