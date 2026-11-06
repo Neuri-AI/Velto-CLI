@@ -75,12 +75,67 @@ def _candidate_interpreters(version: tuple[int, int], toolchain_root: Path | Non
 
 
 
+def _managed_python_root(version: tuple[int, int]) -> Path:
+    """Persistent build-only interpreter; never mutate the active Conda env."""
+    return Path.home() / ".velto/mobile/android/qt/bytecode-python" / (
+        f"{version[0]}.{version[1]}"
+    )
+
+
+def _resolve_managed_python(version: tuple[int, int], *, install: bool) -> str | None:
+    """Resolve or provision a persistent matching host CPython via Conda."""
+    prefix = _managed_python_root(version)
+    executable = prefix / "bin" / f"python{version[0]}.{version[1]}"
+    if executable.is_file():
+        return str(executable)
+    if not install:
+        return None
+    conda = (
+        os.environ.get("CONDA_EXE") or shutil.which("conda")
+        or (
+            str(Path.home() / "miniconda3/bin/conda")
+            if (Path.home() / "miniconda3/bin/conda").is_file() else None
+        )
+    )
+    if not conda:
+        return None
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        completed = subprocess.run(
+            [
+                conda, "create", "--yes", "--quiet", "--prefix", str(prefix),
+                f"python={version[0]}.{version[1]}",
+            ],
+            capture_output=True, text=True, check=False, timeout=900,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(
+            "Velto could not provision the Android bytecode interpreter "
+            "in its isolated cache; the active Conda environment is unchanged."
+        ) from exc
+    if completed.returncode:
+        raise RuntimeError(
+            f"Velto could not provision Python {version[0]}.{version[1]} "
+            "in its isolated Android build cache. Conda reported: "
+            + (completed.stderr or completed.stdout)[-1400:]
+        )
+    if not executable.is_file():
+        raise RuntimeError(
+            f"Conda did not create the Android build interpreter at {executable}"
+        )
+    return str(executable)
+
+
 def find_android_bytecode_python(
     version: tuple[int, int], *, toolchain_root: Path | None = None,
 ) -> str:
     """Return a runnable matching Python executable or give actionable error."""
     checked: set[str] = set()
-    for candidate in _candidate_interpreters(version, toolchain_root):
+    managed = _resolve_managed_python(version, install=False)
+    candidates = list(_candidate_interpreters(version, toolchain_root))
+    if managed is not None:
+        candidates.insert(0, managed)
+    for candidate in candidates:
         if candidate in checked:
             continue
         checked.add(candidate)
@@ -95,12 +150,25 @@ def find_android_bytecode_python(
         if (outcome.returncode == 0
                 and outcome.stdout.strip() == f"{version[0]}.{version[1]}"):
             return candidate
+    # A previous Android build may have discarded hostpython3 when it
+    # removed its temporary workspace. Recreate a matching persistent
+    # interpreter without switching or modifying the active Conda env.
+    managed = _resolve_managed_python(version, install=True)
+    if managed is not None and managed not in checked:
+        result = subprocess.run(
+            [managed, "-I", "-S", "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip() == (
+            f"{version[0]}.{version[1]}"
+        ):
+            return managed
     label = f"Python {version[0]}.{version[1]}"
     raise RuntimeError(
         f"Android APK uses {label}; no matching native build interpreter "
         "was found. Velto will not use incompatible host bytecode. "
-        f"Install {label} alongside your current Conda environment, "
-        f"or set VELTO_ANDROID_BYTECODE_PYTHON to a working {label} executable."
+        f"Set VELTO_ANDROID_BYTECODE_PYTHON to a working {label} executable, "
+        "or make Conda available so Velto can provision one in its build cache."
     )
 
 
