@@ -59,3 +59,23 @@ matching Android target include directory (containing both headers).
 Do **not** point it at the host's Python or Conda include directory.
 Velto refuses to produce an APK with incorrect ABI headers and never falls
 back to .pyc.
+
+## Automatic header recovery from reused p4a distributions
+
+A compatible prebuilt python-for-android distribution can lack the source
+build's Android CPython headers. On a protected Cython build, Velto now checks
+its persistent header cache first. When no retained headers exist, it injects
+`--force-build` into Buildozer's p4a arguments for that deployment. This
+forces p4a to rebuild the native distribution rather than silently reusing
+an APK-only distribution. This initial build can be substantially slower.
+
+After the target CPython headers are discovered, Velto **copies** them into
+`~/.velto/mobile/android/qt/target-python-headers/<sha256-of-libpython>/`.
+This cache key is the SHA-256 of the Android libpython extracted from the
+built APK, so a different CPython binary will never silently reuse headers
+from another build. Neither the user's app nor the original p4a source tree
+is moved or deleted. The force-build setting is scoped to deployment and
+restored afterward; subsequent builds can reuse the matching header cache.
+
+If a forced p4a rebuild still omits the Android headers, the build fails
+closed with a diagnostic. No macOS headers or .pyc substitutes are accepted.
