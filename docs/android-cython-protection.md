@@ -62,20 +62,20 @@ back to .pyc.
 
 ## Automatic header recovery from reused p4a distributions
 
-A compatible prebuilt python-for-android distribution can lack the source
-build's Android CPython headers. On a protected Cython build, Velto now checks
-its persistent header cache first. When no retained headers exist, it injects
-`--force-build` into Buildozer's p4a arguments for that deployment. This
-forces p4a to rebuild the native distribution rather than silently reusing
-an APK-only distribution. This initial build can be substantially slower.
+Velto does **not** pass `--force-build` through Buildozer's
+`APP_P4A_EXTRA_ARGS`: on the Qt bootstrap, doing so forces the *APK*
+phase to rebuild without PySide6's mandatory `--qt-libs` and
+`--load-local-libs`, and APK packaging fails.
 
-After the target CPython headers are discovered, Velto **copies** them into
-`~/.velto/mobile/android/qt/target-python-headers/<sha256-of-libpython>/`.
-This cache key is the SHA-256 of the Android libpython extracted from the
-built APK, so a different CPython binary will never silently reuse headers
-from another build. Neither the user's app nor the original p4a source tree
-is moved or deleted. The force-build setting is scoped to deployment and
-restored afterward; subsequent builds can reuse the matching header cache.
+Instead, Velto lets PySide6 produce the base APK normally. If the APK's
+target Python headers are absent and no matching ABI-keyed cache exists,
+Velto then calls a **separate p4a create --force-build** using the
+existing Qt distribution's `dist_info.json` and generated local recipes,
+only to regenerate the native recipe build headers. Cython can then
+cross-compile .so extensions and the APK can be signed. This recovery
+is costly on the first run and is still pending device certification.
 
-If a forced p4a rebuild still omits the Android headers, the build fails
-closed with a diagnostic. No macOS headers or .pyc substitutes are accepted.
+When matching headers are available, Velto copies them into
+`~/.velto/mobile/android/qt/target-python-headers/<sha256-of-libpython>/`
+for later reuse. Sources are copied rather than moved. If recovery
+fails, it stops; no macOS headers or .pyc fallback are accepted.
