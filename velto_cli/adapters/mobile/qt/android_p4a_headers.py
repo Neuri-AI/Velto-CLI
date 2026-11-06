@@ -24,48 +24,61 @@ _QT_RECIPES = (
 )
 
 
-def _qt_distribution_artifact(distribution: Path) -> bool:
-    """Validate a completed Qt distribution through its actual APK.
+def _verified_qt_apk(apk: Path) -> bool:
+    """The actual successfully built APK is our authoritative artifact.
 
-    libpython is commonly packaged under APK lib/arm64-v8a rather than
-    remaining under distribution/libs. Never require the latter location.
+    p4a/Qt can remove or relocate both dist_info.json and copied native
+    libraries. Checking their presence inside intermediate directories
+    causes false failures. The Android APK is the source of truth.
     """
-    apk_root = distribution / "build/outputs/apk"
-    for apk in sorted(apk_root.glob("**/*.apk")):
-        try:
-            with ZipFile(apk) as archive:
-                names = archive.namelist()
-                if (
-                    "lib/arm64-v8a/libpython3.14.so" in names
-                    and any(
-                        name.startswith("lib/arm64-v8a/")
-                        and name.endswith("libmain_arm64-v8a.so")
-                        for name in names
-                    )
-                    and ("assets/private.tar" in names
-                         or "assets/private.mp3" in names)
-                ):
-                    return True
-        except (BadZipFile, OSError):
-            continue
-    return False
+    from zipfile import ZipFile, BadZipFile
+    try:
+        with ZipFile(apk) as archive:
+            names = archive.namelist()
+            return (
+                any(name.startswith("lib/arm64-v8a/libpython")
+                    and name.endswith(".so") for name in names)
+                and any(name.startswith("lib/arm64-v8a/libQt6")
+                        and name.endswith(".so") for name in names)
+                and ("assets/private.tar" in names or
+                     "assets/private.mp3" in names)
+            )
+    except (OSError, BadZipFile):
+        return False
 
 
-
-def _distribution(toolchain_root: Path) -> tuple[Path, Path, dict]:
+def _distribution(
+    toolchain_root: Path, apk: Path | None = None,
+) -> tuple[Path, Path, dict]:
     platform = toolchain_root / ".buildozer/android/platform"
-    roots = sorted(
-        (candidate for candidate in platform.glob("build-*/dists/*")
-         if candidate.is_dir() and candidate.parent.parent.name == "build-arm64-v8a"),
-        key=lambda candidate: candidate.stat().st_mtime_ns,
-        reverse=True,
+    storage = platform / "build-arm64-v8a"
+    dist_base = storage / "dists"
+    if not dist_base.is_dir():
+        raise RuntimeError(
+            f"Qt p4a distribution directory missing: {dist_base}"
+        )
+    if apk is not None and not _verified_qt_apk(apk):
+        raise RuntimeError(
+            "Cython recovery requires the already-generated, valid Qt APK "
+            "containing Android ARM64 CPython, Qt libraries, and private assets."
+        )
+    preferred = (
+        dist_base / toolchain_root.name if apk is not None else None
     )
+    roots = [
+        candidate for candidate in dist_base.iterdir()
+        if candidate.is_dir()
+    ]
+    if preferred is not None and preferred.is_dir():
+        roots = [preferred]
+    elif len(roots) != 1:
+        raise RuntimeError(
+            "Cannot unambiguously select Qt p4a distribution. "
+            f"Found: {[candidate.name for candidate in roots]}"
+        )
     for distribution in roots:
-        # dist_info.json can be missing from a PySide6 Qt distribution whose
-        # APK and native libraries were nevertheless successfully generated.
-        # Do not depend on metadata being written at one fixed path.
         metadata = distribution / "dist_info.json"
-        info = None
+        info: dict | None = None
         if metadata.is_file():
             try:
                 value = json.loads(metadata.read_text(encoding="utf-8"))
@@ -74,21 +87,17 @@ def _distribution(toolchain_root: Path) -> tuple[Path, Path, dict]:
             except (OSError, ValueError):
                 pass
         recipes = info.get("recipes") if info else None
-        if (
-            isinstance(recipes, list)
-            and all(isinstance(item, str) and item for item in recipes)
-            and {"python3", "pyside6", "shiboken6"}.issubset(recipes)
-        ):
-            return distribution, distribution.parent.parent, info
-        if _qt_distribution_artifact(distribution):
-            return (
-                distribution, distribution.parent.parent,
-                {"recipes": list(_QT_RECIPES)},
-            )
+        if isinstance(recipes, list) and {
+            "python3", "pyside6", "shiboken6",
+        }.issubset(recipes):
+            return distribution, storage, info
+        if apk is not None:
+            # A real Qt APK was produced by the same stage, and p4a can
+            # discard the intermediate metadata and duplicated .so files.
+            return distribution, storage, {"recipes": list(_QT_RECIPES)}
     raise RuntimeError(
-        "No verified ARM64 Qt python-for-android distribution found in "
-        f"{platform}. Expected a generated Qt APK containing ARM64 libmain and "
-        "Android libpython3.14.so. Cannot recover Cython headers."
+        "Cannot verify a Qt p4a distribution. Supply the finished "
+        "APK to native header recovery."
     )
 
 
@@ -98,8 +107,10 @@ def _android_sdk_root() -> Path:
     return _android_sdk_tool("zipalign").parent.parent.parent
 
 
-def _create_command(toolchain_root: Path, ndk_api: int) -> list[str]:
-    distribution, storage, info = _distribution(toolchain_root)
+def _create_command(
+    toolchain_root: Path, ndk_api: int, apk: Path | None = None,
+) -> list[str]:
+    distribution, storage, info = _distribution(toolchain_root, apk)
     if storage.name != "build-arm64-v8a":
         raise RuntimeError("Cython header recovery supports only arm64-v8a")
     recipes = toolchain_root / "deployment/recipes"
@@ -122,9 +133,10 @@ def _create_command(toolchain_root: Path, ndk_api: int) -> list[str]:
 
 def recover_android_python_headers(
     toolchain_root: Path, version: tuple[int, int], *, ndk_api: int = 28,
+    apk: Path | None = None,
 ) -> None:
     """Rebuild p4a distribution only, never Qt APK packaging."""
-    command = _create_command(toolchain_root, ndk_api)
+    command = _create_command(toolchain_root, ndk_api, apk)
     env = os.environ.copy()
     env.pop("APP_P4A_EXTRA_ARGS", None)
     env["ANDROIDNDK"] = str(_ndk_root())
