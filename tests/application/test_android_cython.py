@@ -237,16 +237,17 @@ def test_p4a_recovery_finds_verified_qt_dist_without_metadata(tmp_path, monkeypa
     from zipfile import ZipFile
     with ZipFile(apk, "w") as archive:
         archive.writestr("lib/arm64-v8a/libmain_arm64-v8a.so", b"fixture")
+        archive.writestr("lib/arm64-v8a/libQt6Core_arm64-v8a.so", b"fixture")
         archive.writestr("lib/arm64-v8a/libpython3.14.so", b"fixture")
         archive.writestr("assets/private.tar", b"fixture")
     (tmp_path / "deployment/recipes").mkdir(parents=True)
     monkeypatch.setattr(p4a, "_ndk_root", lambda: tmp_path / "ndk")
     monkeypatch.setattr(p4a, "_android_sdk_root", lambda: tmp_path / "sdk")
-    found, storage, info = p4a._distribution(tmp_path)
+    found, storage, info = p4a._distribution(tmp_path, apk)
     assert found == dist
     assert storage.name == "build-arm64-v8a"
     assert {"python3", "pyside6", "shiboken6"}.issubset(info["recipes"])
-    cmd = p4a._create_command(tmp_path, 28)
+    cmd = p4a._create_command(tmp_path, 28, apk)
     assert cmd[3] == "create"
     assert "--force-build" in cmd
     assert "--requirements" in cmd
@@ -261,5 +262,28 @@ def test_p4a_recovery_refuses_unverified_dist_without_metadata(tmp_path):
     dist.mkdir(parents=True)
     (dist / "build/outputs/apk/debug").mkdir(parents=True)
     (dist / "build/outputs/apk/debug/stale.apk").write_bytes(b"stale")
-    with pytest.raises(RuntimeError, match="No verified ARM64 Qt"):
-        p4a._distribution(tmp_path)
+    with pytest.raises(RuntimeError, match="valid Qt APK"):
+        p4a._distribution(tmp_path, dist / "build/outputs/apk/debug/stale.apk")
+
+
+def test_p4a_apk_authority_without_intermediate_libs(tmp_path):
+    from zipfile import ZipFile
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+    dist = (
+        tmp_path / ".buildozer/android/platform/build-arm64-v8a"
+        / "dists/AndroidAppQt"
+    )
+    dist.mkdir(parents=True)
+    apk = tmp_path / "AndroidAppQt-0.1-arm64-v8a-debug.apk"
+    with ZipFile(apk, "w") as bundle:
+        bundle.writestr("lib/arm64-v8a/libpython3.14.so", b"fixture")
+        bundle.writestr("lib/arm64-v8a/libQt6Gui_arm64-v8a.so", b"fixture")
+        bundle.writestr("assets/private.tar", b"fixture")
+    # The very scenario seen in PySide6: APK exists, intermediate native
+    # library folder and distribution metadata are not available.
+    assert not (dist / "libs").exists()
+    assert not (dist / "dist_info.json").exists()
+    selected, storage, info = p4a._distribution(tmp_path, apk)
+    assert selected == dist
+    assert storage.name == "build-arm64-v8a"
+    assert set(("python3", "shiboken6", "pyside6")).issubset(info["recipes"])
