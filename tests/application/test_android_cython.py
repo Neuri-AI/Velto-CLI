@@ -224,3 +224,42 @@ def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch):
     assert commands[0][0][3] == "create"
     assert "APP_P4A_EXTRA_ARGS" not in commands[0][1]
     assert "--force-build" in commands[0][0]
+
+
+def test_p4a_recovery_finds_verified_qt_dist_without_metadata(tmp_path, monkeypatch):
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+    dist = (
+        tmp_path / ".buildozer/android/platform/build-arm64-v8a"
+        / "dists/AndroidAppQt"
+    )
+    libs = dist / "libs/arm64-v8a"
+    libs.mkdir(parents=True)
+    (libs / "libmain_arm64-v8a.so").write_bytes(b"fixture")
+    (libs / "libpython3.14.so").write_bytes(b"fixture")
+    apk = dist / "build/outputs/apk/debug/AndroidAppQt-debug.apk"
+    apk.parent.mkdir(parents=True)
+    apk.write_bytes(b"fixture")
+    (tmp_path / "deployment/recipes").mkdir(parents=True)
+    monkeypatch.setattr(p4a, "_ndk_root", lambda: tmp_path / "ndk")
+    monkeypatch.setattr(p4a, "_android_sdk_root", lambda: tmp_path / "sdk")
+    found, storage, info = p4a._distribution(tmp_path)
+    assert found == dist
+    assert storage.name == "build-arm64-v8a"
+    assert {"python3", "pyside6", "shiboken6"}.issubset(info["recipes"])
+    cmd = p4a._create_command(tmp_path, 28)
+    assert cmd[3] == "create"
+    assert "--force-build" in cmd
+    assert "--requirements" in cmd
+
+
+def test_p4a_recovery_refuses_unverified_dist_without_metadata(tmp_path):
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+    dist = (
+        tmp_path / ".buildozer/android/platform/build-arm64-v8a"
+        / "dists/AndroidAppQt"
+    )
+    dist.mkdir(parents=True)
+    (dist / "build/outputs/apk/debug").mkdir(parents=True)
+    (dist / "build/outputs/apk/debug/stale.apk").write_bytes(b"stale")
+    with pytest.raises(RuntimeError, match="No verified ARM64 Qt"):
+        p4a._distribution(tmp_path)
