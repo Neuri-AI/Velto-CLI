@@ -120,3 +120,55 @@ def test_cython_can_find_reused_global_p4a_headers(tmp_path, monkeypatch):
         lambda stage: [stage / ".buildozer/android/platform", global_platform],
     )
     assert android_cython._target_headers(tmp_path / "stage", (3, 14)) == [include]
+
+
+def test_target_header_cache_persists_without_moving_originals(
+    tmp_path, monkeypatch,
+):
+    from velto_cli.adapters.mobile.qt import android_cython
+    cache_root = tmp_path / "persisted-cache"
+    monkeypatch.setattr(android_cython, "_target_header_cache", lambda: cache_root)
+    include = tmp_path / "p4a" / "include"
+    include.mkdir(parents=True)
+    (include / "Python.h").write_text("target header")
+    (include / "pyconfig.h").write_text("target pyconfig")
+    key = "a" * 64
+    result = android_cython._cache_headers([include], key)
+    assert result == [cache_root / key / "include"]
+    assert (result[0] / "Python.h").read_text() == "target header"
+    assert (include / "Python.h").read_text() == "target header"
+    assert android_cython._cached_headers(key) == result
+    assert android_cython.has_cached_target_headers()
+
+
+def test_target_header_cache_separates_distinct_android_libpython(tmp_path, monkeypatch):
+    from velto_cli.adapters.mobile.qt import android_cython
+    monkeypatch.setattr(
+        android_cython, "_target_header_cache", lambda: tmp_path / "cache",
+    )
+    include = tmp_path / "target"
+    include.mkdir()
+    (include / "Python.h").write_text("python target")
+    (include / "pyconfig.h").write_text("android ABI")
+    android_cython._cache_headers([include], "a" * 64)
+    assert android_cython._cached_headers("b" * 64) is None
+    assert android_cython._target_headers(
+        tmp_path, (3, 14), libpython_hash="a" * 64,
+    ) == [tmp_path / "cache" / ("a" * 64) / "include"]
+
+
+def test_p4a_force_build_environment_scope(tmp_path, monkeypatch):
+    import os
+    from velto_cli.adapters.mobile.qt.android_build_inputs import (
+        force_p4a_native_rebuild,
+    )
+    monkeypatch.delenv("APP_P4A_EXTRA_ARGS", raising=False)
+    with force_p4a_native_rebuild(True):
+        assert os.environ["APP_P4A_EXTRA_ARGS"] == "--force-build"
+    assert "APP_P4A_EXTRA_ARGS" not in os.environ
+    monkeypatch.setenv("APP_P4A_EXTRA_ARGS", "--debug")
+    with force_p4a_native_rebuild(True):
+        assert os.environ["APP_P4A_EXTRA_ARGS"] == "--debug --force-build"
+    assert os.environ["APP_P4A_EXTRA_ARGS"] == "--debug"
+    with force_p4a_native_rebuild(False):
+        assert os.environ["APP_P4A_EXTRA_ARGS"] == "--debug"
