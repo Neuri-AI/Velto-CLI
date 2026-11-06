@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from velto_cli.application.ports import MobileBuildPort, SettingsPort, UserInteractionPort
+from velto_cli.adapters.mobile.qt.android_build_config import load_android_build_config
 from velto_cli.domain.mobile import (
     MobileBuildArtifact, MobileFramework, MobileFreezeRequest, MobileTarget,
 )
@@ -41,6 +42,13 @@ class FreezeMobileUseCase:
         except ValueError as exc:
             raise ValueError("Mobile builds support only Kivy or PySide6") from exc
 
+        android_settings = (load_android_build_config(root)
+                            if target is MobileTarget.ANDROID else {})
+        if target is MobileTarget.ANDROID and framework is MobileFramework.PYSIDE6:
+            # Release remains protected by default; debug is configurable.
+            protect_source = protect_source or (
+                not debug or android_settings.get("protect_source", False)
+            )
         if protect_source and (target is not MobileTarget.ANDROID or framework is not MobileFramework.PYSIDE6):
             raise ValueError("--protect-source currently supports only PySide6 Android APKs")
         if protect_source and init_only:
