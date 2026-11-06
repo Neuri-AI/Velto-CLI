@@ -325,9 +325,24 @@ def compile_android_extensions(
             if not _is_elf_arm64(target_lib.read_bytes()[:32]):
                 raise RuntimeError("APK libpython is not an ARM64 ELF binary")
             target_hash = hashlib.sha256(target_lib.read_bytes()).hexdigest()
-            headers = _target_headers(
-                toolchain_root, version, libpython_hash=target_hash,
-            )
+            try:
+                headers = _target_headers(
+                    toolchain_root, version, libpython_hash=target_hash,
+                )
+            except RuntimeError as exc:
+                if "has no retained Python recipe build" not in str(exc):
+                    raise
+                # Qt's base APK is complete. Rebuild p4a recipes separately,
+                # never passing --force-build to its APK packaging command.
+                from velto_cli.adapters.mobile.qt.android_p4a_headers import (
+                    recover_android_python_headers,
+                )
+                recover_android_python_headers(
+                    toolchain_root, version, ndk_api=min_api,
+                )
+                headers = _target_headers(
+                    toolchain_root, version, libpython_hash=target_hash,
+                )
             if _cached_headers(target_hash) is None:
                 headers = _cache_headers(headers, target_hash)
             for index, (name, source, destination) in enumerate(jobs):
