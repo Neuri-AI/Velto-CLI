@@ -512,6 +512,10 @@ class QtAndroidBuilder:
             # Validate release signing before downloading Qt wheels or running
             # Buildozer. Never spend a full compile on an unsignable APK.
             _release_credentials(request.project_root)
+        if request.init_only:
+            # --init-spec creates the developer-owned specification; it is not
+            # an APK compilation and must write to the actual project.
+            return self._pyside_android_impl(request)
         # Work exclusively inside a disposable, filtered project mirror.
         # The original app (including excluded settings) is never moved.
         with staged_android_project(request.project_root) as stage:
