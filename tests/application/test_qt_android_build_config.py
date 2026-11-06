@@ -139,3 +139,19 @@ def test_release_credentials_env_override_json(tmp_path, monkeypatch):
     assert _release_credentials(tmp_path) == (
         store.resolve(), "ci", "ci-store-pass", "ci-key-pass"
     )
+
+
+def test_project_relative_signing_keystore_is_always_excluded(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "android.json").write_text(
+        '{"signing": {"keystore": "keys/private-release.bin"}}'
+    )
+    (tmp_path / "keys").mkdir()
+    store = tmp_path / "keys/private-release.bin"
+    store.write_bytes(b"PRIVATE-KEY")
+    patterns = android_exclusion_patterns(tmp_path)
+    assert is_android_excluded("keys/private-release.bin", patterns)
+    with isolate_android_excluded_sources(tmp_path):
+        assert not store.exists()
+    assert store.read_bytes() == b"PRIVATE-KEY"
