@@ -18,6 +18,10 @@ from typing import Callable, Iterator
 from zipfile import BadZipFile, ZipFile
 
 
+from velto_cli.adapters.mobile.qt.android_build_config import (
+    android_exclusion_patterns, is_android_excluded,
+)
+
 PACKAGES = ("velto", "qyro", "psx")
 _NATIVE_SUFFIXES = (".so", ".pyd", ".dll", ".dylib", ".a", ".o", ".pyc")
 _SKIP_DIRS = {"__pycache__", ".git", ".pytest_cache", "tests", "test"}
@@ -176,6 +180,7 @@ _ASSET_FORBIDDEN_STEMS = frozenset({
 def _project_runtime_assets(root: Path) -> dict[str, Path]:
     """Discover non-executable application assets, excluding sensitive files."""
     assets: dict[str, Path] = {}
+    exclusions = android_exclusion_patterns(root)
     for directory in sorted(_ASSET_DIRS):
         base = root / directory
         if not base.is_dir() or base.is_symlink():
@@ -184,6 +189,8 @@ def _project_runtime_assets(root: Path) -> dict[str, Path]:
             if not item.is_file() or item.is_symlink():
                 continue
             rel = item.relative_to(root)
+            if is_android_excluded(rel.as_posix(), exclusions):
+                continue
             if any(part.startswith(".") or part.lower() in _ASSET_FORBIDDEN_PARTS
                    for part in rel.parts):
                 continue
