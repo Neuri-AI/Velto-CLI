@@ -22,6 +22,9 @@ import tarfile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.android_build_inputs import android_root_inspection_dirs
+from velto_cli.adapters.mobile.qt.android_build_config import (
+    android_exclusion_patterns, is_android_excluded, verify_android_exclusions,
+)
 from velto_cli.adapters.mobile.qt.android_final_apk import (
     finalize_copied_debug_apk, android_private_version_marker,
 )
@@ -63,6 +66,7 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
     sources: dict[str, Path] = {}
     native: dict[str, str] = {}
     assets = _project_runtime_assets(root)
+    exclusions = android_exclusion_patterns(root)
     ignored_root_dirs = {entry.name for entry in android_root_inspection_dirs(root)}
     for base, dirs, names in os.walk(root, followlinks=False):
         parent = Path(base)
@@ -75,12 +79,17 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
         dirs[:] = sorted(
             d for d in dirs
             if d not in _SKIP
+            and not is_android_excluded(
+                (parent / d).relative_to(root).as_posix(), exclusions
+            )
             and (parent != root or d not in ignored_root_dirs)
             and not (parent / d).is_symlink()
         )
         for name in sorted(names):
             item = parent / name
             rel = item.relative_to(root).as_posix()
+            if is_android_excluded(rel, exclusions):
+                continue
             if item.is_symlink():
                 # A symlink could reach outside the build tree; no incremental
                 # patch is permitted when we cannot prove its provenance.
@@ -252,6 +261,9 @@ def record_full_build(root: Path, apk: Path, request: Any) -> None:
         return
     sources, hashes, native = _scan(root)
     contents = _archive_files(apk)
+    exclusions = android_exclusion_patterns(root)
+    if any(is_android_excluded(name, exclusions) for name in contents):
+        return
     if not set(sources).issubset(contents):
         # Do not trust an artifact that cannot represent the next source diff.
         return
@@ -295,6 +307,10 @@ def try_incremental_build(root: Path, request: Any) -> Path | None:
     # Refuse to delete or replace anything not owned by the previous
     # recorded snapshot; never remove standard p4a files or Qt libraries.
     packaged = _archive_files(previous)
+    # Never reuse an APK whose base already contains excluded host-only data.
+    exclusions = android_exclusion_patterns(root)
+    if any(is_android_excluded(name, exclusions) for name in packaged):
+        return None
     if (set(old) - packaged) or (additions & packaged):
         return None
     with ZipFile(previous) as apk:
@@ -341,6 +357,7 @@ def try_incremental_build(root: Path, request: Any) -> Path | None:
         verify_qt_android_runtime_assets(artifact, root)
         if project_uses_svg(root):
             verify_android_svg_apk(artifact)
+        verify_android_exclusions(artifact, root)
         # Atomically publish a verified, signed APK under the stable output.
         output = root / "build/android/qt"
         output.mkdir(parents=True, exist_ok=True)
