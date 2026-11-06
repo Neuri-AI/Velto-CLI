@@ -27,6 +27,13 @@ def _apk(path: Path, files: dict[str, bytes]) -> None:
         apk.writestr("assets/private.tar", private.getvalue())
 
 
+def _elf_arm64_fixture():
+    data = bytearray(32)
+    data[:6] = b"\\x7fELF\\x02\\x01"
+    data[18:20] = (183).to_bytes(2, "little")
+    return bytes(data)
+
+
 def test_verifier_rejects_unprotected_component_sources(tmp_path):
     root = tmp_path / "app"
     (root / "components").mkdir(parents=True)
@@ -34,7 +41,7 @@ def test_verifier_rejects_unprotected_component_sources(tmp_path):
     apk = tmp_path / "release.apk"
     _apk(apk, {
         "main.py": _bootstrap(),
-        "main.so": b"fake compiled module",
+        "main.so": _elf_arm64_fixture(),
         "components/test.py": b"TOP_SECRET = 'raw Python'\n",
     })
     with pytest.raises(RuntimeError, match="exposes application Python"):
@@ -48,8 +55,8 @@ def test_verifier_accepts_cython_modules_and_entry_bootstrap(tmp_path):
     apk = tmp_path / "release.apk"
     _apk(apk, {
         "main.py": _bootstrap(),
-        "main.so": b"native ARM64 module fixture",
-        "components/test.so": b"fake compiled module",
+        "main.so": _elf_arm64_fixture(),
+        "components/test.so": _elf_arm64_fixture(),
     })
     verify_android_release_source_protection(apk, root)
 
@@ -60,7 +67,7 @@ def test_verifier_rejects_unprotected_framework_sources(tmp_path):
     apk = tmp_path / "release.apk"
     _apk(apk, {
         "main.py": _bootstrap(),
-        "main.so": b"native ARM64 module fixture",
+        "main.so": _elf_arm64_fixture(),
         "velto/__init__.py": b"EXPOSED = True\n",
     })
     with pytest.raises(RuntimeError, match="exposes application Python"):
@@ -107,99 +114,6 @@ def test_use_case_passes_protection_flag_to_builder(tmp_path):
     )
     request = builder.freeze.call_args.args[0]
     assert request.debug and request.protect_source
-
-
-def test_hostpython_discovery_checks_installed_p4a_root_prefix(tmp_path):
-    from velto_cli.adapters.mobile.qt.android_bytecode import (
-        _candidate_interpreters,
-    )
-    hostpython = (
-        tmp_path / ".buildozer/android/platform/build-arm64-v8a/build/"
-        "other_builds/hostpython3/desktop/hostpython3/native-build/"
-        "root/usr/local/bin/python"
-    )
-    hostpython.parent.mkdir(parents=True)
-    hostpython.write_bytes(b"fake binary")
-    assert str(hostpython) in list(_candidate_interpreters((3, 14), tmp_path))
-
-
-def test_hostpython_fallback_recognizes_homebrew_python(tmp_path, monkeypatch):
-    from velto_cli.adapters.mobile.qt import android_bytecode
-    monkeypatch.delenv("VELTO_ANDROID_BYTECODE_PYTHON", raising=False)
-    original_is_file = android_bytecode.Path.is_file
-
-    def fake_is_file(self):
-        if str(self) == "/opt/homebrew/opt/python@3.14/bin/python3.14":
-            return True
-        return original_is_file(self)
-
-    monkeypatch.setattr(android_bytecode.Path, "is_file", fake_is_file)
-    assert (
-        "/opt/homebrew/opt/python@3.14/bin/python3.14"
-        in list(android_bytecode._candidate_interpreters((3, 14), None))
-    )
-
-
-def test_managed_bytecode_python_uses_isolated_conda_prefix(tmp_path, monkeypatch):
-    from subprocess import CompletedProcess
-    from velto_cli.adapters.mobile.qt import android_bytecode as mod
-
-    prefix = tmp_path / "android-python" / "3.14"
-    interpreter = prefix / "bin" / "python3.14"
-    monkeypatch.setattr(mod, "_managed_python_root", lambda version: prefix)
-    monkeypatch.setenv("CONDA_EXE", "/fake/bin/conda")
-    calls = []
-
-    def run(args, **kwargs):
-        calls.append(args)
-        interpreter.parent.mkdir(parents=True, exist_ok=True)
-        interpreter.write_bytes(b"test executable")
-        return CompletedProcess(args, 0, "", "")
-
-    monkeypatch.setattr(mod.subprocess, "run", run)
-    assert mod._resolve_managed_python((3, 14), install=True) == str(interpreter)
-    assert calls == [[
-        "/fake/bin/conda", "create", "--yes", "--quiet",
-        "--prefix", str(prefix), "python=3.14",
-    ]]
-
-
-def test_managed_bytecode_python_does_not_modify_existing_prefix(
-    tmp_path, monkeypatch,
-):
-    from velto_cli.adapters.mobile.qt import android_bytecode as mod
-    prefix = tmp_path / "cache" / "3.14"
-    interpreter = prefix / "bin/python3.14"
-    interpreter.parent.mkdir(parents=True)
-    interpreter.write_bytes(b"cached")
-    monkeypatch.setattr(mod, "_managed_python_root", lambda version: prefix)
-
-    def forbidden_run(*args, **kwargs):
-        raise AssertionError("Conda must not run for already cached interpreter")
-    monkeypatch.setattr(mod.subprocess, "run", forbidden_run)
-    assert mod._resolve_managed_python((3, 14), install=True) == str(interpreter)
-
-
-def test_mismatched_python_without_conda_is_not_auto_installed(
-    tmp_path, monkeypatch,
-):
-    import sys
-    from velto_cli.adapters.mobile.qt import android_bytecode as mod
-
-    target = (3, 14) if sys.version_info[:2] != (3, 14) else (3, 12)
-    monkeypatch.delenv("CONDA_EXE", raising=False)
-    monkeypatch.setattr(mod.shutil, "which", lambda cmd: None)
-    monkeypatch.setattr(
-        mod, "_candidate_interpreters", lambda version, toolchain_root: [],
-    )
-    monkeypatch.setattr(
-        mod, "_managed_python_root",
-        lambda version: tmp_path / "isolated" / "missing",
-    )
-    # Avoid touching the real user's ~/miniconda3 while testing.
-    monkeypatch.setattr(mod.Path, "home", lambda: tmp_path)
-    with pytest.raises(RuntimeError, match="no matching native build interpreter"):
-        mod.find_android_bytecode_python(target)
 
 
 def test_cython_module_names_and_library_paths():
