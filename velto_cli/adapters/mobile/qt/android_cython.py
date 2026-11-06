@@ -102,6 +102,18 @@ def _target_headers(toolchain_root: Path, version: tuple[int, int]) -> list[Path
     pyconfig.h: it describes macOS, not Android.
     """
     wanted = f"python{version[0]}.{version[1]}"
+    explicit = os.environ.get("VELTO_ANDROID_PYTHON_INCLUDE")
+    if explicit:
+        include = Path(explicit).expanduser().resolve()
+        if include.name != wanted or not (
+            include / "Python.h"
+        ).is_file() or not (include / "pyconfig.h").is_file():
+            raise RuntimeError(
+                "VELTO_ANDROID_PYTHON_INCLUDE must point to the Android "
+                f"{wanted} include directory containing Python.h and "
+                "Android pyconfig.h; refusing host/macOS Python headers."
+            )
+        return [include]
     searched: list[str] = []
     for root in _python_header_roots(toolchain_root):
         searched.append(str(root))
