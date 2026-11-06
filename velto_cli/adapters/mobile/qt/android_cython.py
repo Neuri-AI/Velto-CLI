@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 from pathlib import Path, PurePosixPath
 import re
-import shutil
 import subprocess
 import sys
 from zipfile import ZipFile
@@ -122,14 +121,35 @@ def _run(command: list[str], *, cwd: Path | None = None) -> None:
         )
 
 
-def _check_cython() -> None:
+def _cython_python() -> Path:
+    """Use Cython 3 without breaking Buildozer's separate Cython<3 constraint."""
+    from importlib import metadata
     try:
-        import Cython  # noqa: F401
-    except ImportError as exc:
+        version = metadata.version("Cython")
+    except metadata.PackageNotFoundError:
+        version = ""
+    if version.split(".", 1)[0].isdigit() and int(version.split(".", 1)[0]) >= 3:
+        return Path(sys.executable)
+    isolated = Path.home() / ".velto/mobile/android/qt/cython3"
+    executable = isolated / "bin/python"
+    if not executable.is_file():
+        _run([sys.executable, "-m", "venv", str(isolated)])
+        _run([
+            str(executable), "-m", "pip", "install",
+            "--disable-pip-version-check", "Cython>=3.1,<4",
+        ])
+    check = subprocess.run(
+        [str(executable), "-c",
+         "import Cython; assert int(Cython.__version__.split('.')[0]) >= 3"],
+        capture_output=True, text=True, check=False,
+    )
+    if check.returncode:
         raise RuntimeError(
-            "Android protection requires Cython installed in the Velto build "
-            "environment (python -m pip install Cython). No .pyc fallback."
-        ) from exc
+            "Cython>=3 is required for Android native extensions. The "
+            "isolated compiler environment is invalid. No .pyc fallback."
+        )
+    return executable
+
 
 
 def compile_android_extensions(
@@ -144,7 +164,7 @@ def compile_android_extensions(
     """
     if not jobs:
         raise RuntimeError("Cython protection selected but no Python modules found")
-    _check_cython()
+    cython_python = _cython_python()
     compiler, stripper = _ndk_tools(min_api)
     with ZipFile(apk) as bundle:
         versions = {
@@ -175,8 +195,9 @@ def compile_android_extensions(
                 mod = module_name(name)
                 cfile = link / f"module_{index}.c"
                 _run([
-                    sys.executable, "-m", "cython", "-3",
-                    "--module-name", mod, "--no-docstrings",
+                    str(cython_python), "-m", "cython", "-3",
+                    "--module-name", mod,
+                    *(["--no-docstrings"] if obfuscate else []),
                     "-o", str(cfile), str(source),
                 ])
                 destination.parent.mkdir(parents=True, exist_ok=True)
