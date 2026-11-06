@@ -65,10 +65,11 @@ excluded, even when the keystore has a custom extension. The `exclude` array acc
 additional project-relative paths or globs for future build-only files.
 For example `"exclude": ["private/", "settings/*.secrets.json"]`.
 
-Exclusions are enforced before third-party source scanning, while creating
-incremental fingerprints, and when verifying APK private archives. Previous
-cached APKs containing newly excluded paths are rejected. The build fails if
-an excluded file remains in the generated APK, rather than publishing it.
+Exclusions are enforced in a disposable filtered project copy before third-party
+source scanning, while creating incremental fingerprints, and when verifying
+APK private archives. Original developer files are never moved or renamed.
+Previous cached APKs containing newly excluded paths are rejected. The build
+fails if an excluded file remains in the generated APK, rather than publishing it.
 
 ## Source protection and limitations
 
