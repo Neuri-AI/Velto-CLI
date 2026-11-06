@@ -292,3 +292,18 @@ def test_android_stage_rejects_symlinked_source_without_modification(tmp_path):
             pass
     assert (root / "other.py").is_symlink()
     assert outside.read_text() == "SECRET = True"
+
+
+def test_android_stage_rewrites_absolute_qt_spec_paths_only_in_copy(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_build_inputs import staged_android_project
+    root = tmp_path / "AndroidAppQt"
+    root.mkdir()
+    spec = root / "pysidedeploy.spec"
+    original = "[app]\ninput_file = " + str(root / "main.py") + "\n"
+    spec.write_text(original)
+    (root / "main.py").write_text("print('hi')\n")
+    with staged_android_project(root) as stage:
+        contents = (stage / "pysidedeploy.spec").read_text()
+        assert str(stage / "main.py") in contents
+        assert str(root / "main.py") not in contents
+    assert spec.read_text() == original
