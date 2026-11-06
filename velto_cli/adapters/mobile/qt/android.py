@@ -1,5 +1,6 @@
 """PySide6 Android wheel resolution, Qt Java bootstrap, and APK packaging."""
 import shutil
+from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -11,7 +12,9 @@ from velto_cli.adapters.mobile.qt.android_release import (
     _release_credentials, protect_android_apk, protect_android_release_apk,
     verify_android_release_source_protection,
 )
-from velto_cli.adapters.mobile.qt.android_build_inputs import isolate_previous_android_build_outputs
+from velto_cli.adapters.mobile.qt.android_build_inputs import (
+    isolate_previous_android_build_outputs, staged_android_project,
+)
 from velto_cli.adapters.mobile.qt.android_build_config import (
     verify_android_exclusions,
 )
@@ -509,27 +512,47 @@ class QtAndroidBuilder:
             # Validate release signing before downloading Qt wheels or running
             # Buildozer. Never spend a full compile on an unsignable APK.
             _release_credentials(request.project_root)
-        with staged_velto_sources(request.project_root, enabled=enabled):
-            built = self._pyside_android_impl(request)
-        # Snapshot unprotected sources before transforming the published APK.
-        # A cache-write failure must never result in an unprotected artifact
-        # when the user explicitly requested source protection.
-        if enabled and request.debug and built is not None and built.kind == "apk":
-            if request.protect_source:
+        # Work exclusively inside a disposable, filtered project mirror.
+        # The original app (including excluded settings) is never moved.
+        with staged_android_project(request.project_root) as stage:
+            staged_request = replace(request, project_root=stage)
+            with staged_velto_sources(stage, enabled=enabled):
+                built = self._pyside_android_impl(staged_request)
+            if built is None:
+                return None
+            if not built.path.is_file():
+                raise RuntimeError("Android stage produced no artifact")
+            # Verify the stage against ORIGINAL host-only exclusions, not
+            # against the filtered stage's absent android.json/sign.json.
+            verify_android_exclusions(built.path, request.project_root)
+            if enabled and request.debug:
+                # Cache the unprotected base before source minimization.
                 try:
                     record_full_build(request.project_root, built.path, request)
                 except (OSError, RuntimeError, ValueError) as exc:
                     self._warning(f"Android incremental cache unavailable: {exc}")
+            if enabled and request.protect_source and request.debug:
                 protect_android_apk(built.path, request.project_root, debug=True)
                 self._notice("Protected Android debug APK signed and verified.")
-            else:
-                try:
-                    record_full_build(request.project_root, built.path, request)
-                except (OSError, RuntimeError, ValueError) as exc:
-                    self._warning(
-                        "Android incremental cache unavailable; future builds "
-                        f"will use the normal toolchain: {exc}"
-                    )
+            elif enabled and not request.debug:
+                protect_android_release_apk(built.path, request.project_root)
+                verify_android_release_source_protection(
+                    built.path, request.project_root
+                )
+                self._notice("Protected Android release bytecode verified and APK signed.")
+            verify_android_exclusions(built.path, request.project_root)
+            output = request.project_root / "build" / "android" / "qt" / built.path.name
+            output.parent.mkdir(parents=True, exist_ok=True)
+            # Replace only a completed and verified APK, never a project file.
+            temporary = output.with_name(output.name + ".velto-staged")
+            try:
+                shutil.copy2(built.path, temporary)
+                temporary.replace(output)
+            finally:
+                temporary.unlink(missing_ok=True)
+            built = MobileBuildArtifact(
+                output, request.target, request.framework, output.suffix.lstrip("."),
+            )
         return built
 
     def _pyside_android_impl(
@@ -597,13 +620,6 @@ class QtAndroidBuilder:
             for suffix in ("*.apk", "*.aab")
             for p in root.glob(suffix) if p.is_file()
         }
-        # Never relocate user-owned excluded files. The third-party toolchain
-        # lacks a reliable exclusion hook; refuse unsafe full builds instead
-        # of moving files and risking data loss on interruption.
-        from velto_cli.adapters.mobile.qt.android_build_config import (
-            assert_android_full_build_safe,
-        )
-        assert_android_full_build_safe(root)
         with isolate_previous_android_build_outputs(root):
             try:
                 self._run(args, root)
@@ -710,14 +726,6 @@ class QtAndroidBuilder:
             verify_qt_android_runtime_assets(artifact, root)
         if svg_required:
             verify_android_svg_apk(artifact)
-        if not request.debug:
-            # Do not publish release artifacts containing readable project
-            # Python sources. This also rejects Qt returning a debug APK
-            # for a purported release build.
-            artifact = protect_android_release_apk(artifact, root)
-            verify_android_release_source_protection(artifact, root)
-            self._notice("Protected Android release bytecode verified and APK signed.")
-        verify_android_exclusions(artifact, root)
         published = self._publish_android_artifact(
             artifact, root, backend="qt"
         )
