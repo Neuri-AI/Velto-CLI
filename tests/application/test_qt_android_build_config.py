@@ -210,3 +210,20 @@ def test_android_json_does_not_accept_signing_secrets(tmp_path):
     (settings / "android.json").write_text('{"signing": {"alias": "release"}}')
     with pytest.raises(ValueError, match="settings/sign.json"):
         load_android_build_config(tmp_path)
+
+
+def test_sign_json_leak_in_apk_is_rejected(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "sign.json").write_text('{"android": {"key_password": "local-secret"}}')
+    private = io.BytesIO()
+    with tarfile.open(fileobj=private, mode="w:gz") as tar:
+        raw = (settings / "sign.json").read_bytes()
+        info = tarfile.TarInfo("settings/sign.json")
+        info.size = len(raw)
+        tar.addfile(info, io.BytesIO(raw))
+    apk = tmp_path / "signed.apk"
+    with ZipFile(apk, "w") as z:
+        z.writestr("assets/private.tar", private.getvalue())
+    with pytest.raises(RuntimeError, match="excluded build-only files"):
+        verify_android_exclusions(apk, tmp_path)
