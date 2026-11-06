@@ -76,7 +76,12 @@ fails if an excluded file remains in the generated APK, rather than publishing i
 Release output remains fail-closed. Debug builds default to raw Python unless
 enabled in android.json. The protection mode compiles modules to sourceless
 `.pyc` and signs the APK; this does not encrypt Python, and bytecode can be
-decompiled. The APK must include a compatible CPython interpreter. Existing
+decompiled. Velto inspects the CPython version embedded in the APK and compiles
+bytecode using the matching native `hostpython3` from the Android build when
+available. For incremental builds, a matching host Python installation can
+be selected automatically or provided using `VELTO_ANDROID_BYTECODE_PYTHON`
+(e.g. a Python 3.14 executable when the APK embeds Python 3.14).
+The APK must include a compatible CPython interpreter. Existing
 AAB protection and native compilation with Nuitka are **not implemented**.
 Do not label these artifacts as Nuitka-protected.
 
