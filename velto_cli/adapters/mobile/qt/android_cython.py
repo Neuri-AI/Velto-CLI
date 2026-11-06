@@ -338,7 +338,7 @@ def compile_android_extensions(
                     recover_android_python_headers,
                 )
                 recover_android_python_headers(
-                    toolchain_root, version, ndk_api=min_api,
+                    toolchain_root, version, ndk_api=min_api, apk=apk,
                 )
                 headers = _target_headers(
                     toolchain_root, version, libpython_hash=target_hash,
