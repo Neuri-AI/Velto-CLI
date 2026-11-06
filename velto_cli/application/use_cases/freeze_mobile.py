@@ -44,7 +44,9 @@ class FreezeMobileUseCase:
 
         android_settings = (load_android_build_config(root)
                             if target is MobileTarget.ANDROID else {})
-        if target is MobileTarget.ANDROID and framework is MobileFramework.PYSIDE6:
+        if (target is MobileTarget.ANDROID
+                and framework is MobileFramework.PYSIDE6
+                and not init_only):
             # Release remains protected by default; debug is configurable.
             protect_source = protect_source or (
                 not debug or android_settings.get("protect_source", False)
