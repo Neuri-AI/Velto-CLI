@@ -6,6 +6,7 @@ transformed. Never rewrite python-for-android's interpreter/stdlib.
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib._bootstrap_external as _bootstrap_external
 import io
