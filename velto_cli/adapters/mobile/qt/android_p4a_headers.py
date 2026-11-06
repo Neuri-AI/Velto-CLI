@@ -14,28 +14,68 @@ import sys
 from velto_cli.adapters.mobile.qt.android_cython import _ndk_root
 
 
+# Recipes resolved by the PySide6 Qt Android toolchain. This is a fallback
+# ONLY when the complete existing Qt distribution can be authenticated by
+# its generated native libraries / APK; otherwise fail closed.
+_QT_RECIPES = (
+    "hostpython3", "libffi", "openssl", "sqlite3", "python3",
+    "genericndkbuild", "shiboken6", "pyside6",
+)
+
+
+def _qt_distribution_artifact(distribution: Path) -> bool:
+    """Accept a freshly generated Qt ARM64 dist, not an arbitrary folder."""
+    native = distribution / "libs/arm64-v8a"
+    if not (
+        (native / "libmain_arm64-v8a.so").is_file()
+        and (native / "libpython3.14.so").is_file()
+    ):
+        return False
+    return (
+        any((distribution / "build/outputs/apk").glob("**/*.apk"))
+        or (distribution / "src/main/AndroidManifest.xml").is_file()
+    )
+
+
 def _distribution(toolchain_root: Path) -> tuple[Path, Path, dict]:
     platform = toolchain_root / ".buildozer/android/platform"
-    matches = sorted(
-        platform.glob("build-*/dists/*/dist_info.json"),
-        key=lambda p: p.stat().st_mtime_ns, reverse=True,
+    roots = sorted(
+        (candidate for candidate in platform.glob("build-*/dists/*")
+         if candidate.is_dir() and candidate.parent.parent.name == "build-arm64-v8a"),
+        key=lambda candidate: candidate.stat().st_mtime_ns,
+        reverse=True,
     )
-    for metadata in matches:
-        try:
-            info = json.loads(metadata.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        recipes = info.get("recipes")
+    for distribution in roots:
+        # dist_info.json can be missing from a PySide6 Qt distribution whose
+        # APK and native libraries were nevertheless successfully generated.
+        # Do not depend on metadata being written at one fixed path.
+        metadata = distribution / "dist_info.json"
+        info = None
+        if metadata.is_file():
+            try:
+                value = json.loads(metadata.read_text(encoding="utf-8"))
+                if isinstance(value, dict):
+                    info = value
+            except (OSError, ValueError):
+                pass
+        recipes = info.get("recipes") if info else None
         if (
             isinstance(recipes, list)
             and all(isinstance(item, str) and item for item in recipes)
             and {"python3", "pyside6", "shiboken6"}.issubset(recipes)
         ):
-            return metadata.parent, metadata.parent.parent.parent, info
+            return distribution, distribution.parent.parent, info
+        if _qt_distribution_artifact(distribution):
+            return (
+                distribution, distribution.parent.parent,
+                {"recipes": list(_QT_RECIPES)},
+            )
     raise RuntimeError(
-        "No compatible Qt python-for-android dist_info.json was found. "
-        "Cannot rebuild Android Python target headers."
+        "No verified ARM64 Qt python-for-android distribution found in "
+        f"{platform}. Expected a generated Qt APK, libmain_arm64-v8a.so "
+        "and Android libpython3.14.so. Cannot recover Cython headers."
     )
+
 
 
 def _android_sdk_root() -> Path:
