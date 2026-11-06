@@ -49,7 +49,7 @@ def _owned(name: str, root: Path) -> bool:
 
 
 def _prepare_cython_source(source: bytes, name: str) -> bytes:
-    """Precompile project PSX on the build host; leave framework imports alone."""
+    """Compile project PSX markup lexically before Cython C translation."""
     if name.startswith(tuple(package + "/" for package in PACKAGES)):
         return source
     from psx.markup.transform import transform_source
