@@ -8,7 +8,7 @@ from zipfile import BadZipFile, ZipFile
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
 from velto_cli.adapters.mobile.qt.android_release import (
-    _release_credentials, protect_android_release_apk,
+    _release_credentials, protect_android_apk, protect_android_release_apk,
     verify_android_release_source_protection,
 )
 from velto_cli.adapters.mobile.qt.android_build_inputs import isolate_previous_android_build_outputs
@@ -493,6 +493,11 @@ class QtAndroidBuilder:
                 )
                 quick = None
             if quick is not None:
+                if request.protect_source:
+                    # The incremental cache is deliberately kept unprotected.
+                    # Transform only the independently published artifact.
+                    protect_android_apk(quick, request.project_root, debug=True)
+                    self._notice("Protected Android debug APK signed and verified.")
                 self._notice("Reused Android runtime; updated signed APK.")
                 return MobileBuildArtifact(
                     quick, request.target, request.framework, "apk",
@@ -507,7 +512,22 @@ class QtAndroidBuilder:
         # tree, not the temporary Velto/Qyro/PSX package copies.
         if enabled and request.debug and built is not None and built.kind == "apk":
             try:
-                record_full_build(request.project_root, built.path, request)
+                if request.protect_source:
+                    # Seed cache from the raw, source-bearing deployment before
+                    # publishing a separate signed protected APK.
+                    from velto_cli.adapters.mobile.qt.android_incremental import _cache_root
+                    from velto_cli.adapters.mobile.qt.android_incremental import _scan, _store, _request_key
+                    _, hashes, native = _scan(request.project_root)
+                    import tempfile
+                    import shutil as _shutil
+                    with tempfile.TemporaryDirectory(prefix="velto-unprotected-") as temp:
+                        raw = Path(temp) / built.path.name
+                        _shutil.copy2(built.path, raw)
+                        # Source files must remain complete and marker verifiable.
+                        record_full_build(request.project_root, built.path, request)
+                        protect_android_apk(built.path, request.project_root, debug=True)
+                else:
+                    record_full_build(request.project_root, built.path, request)
             except (OSError, RuntimeError, ValueError) as exc:
                 self._warning(
                     "Android incremental cache unavailable; future builds "
