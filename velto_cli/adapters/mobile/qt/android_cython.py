@@ -128,24 +128,26 @@ def _cython_python() -> Path:
         version = metadata.version("Cython")
     except metadata.PackageNotFoundError:
         version = ""
-    if version.split(".", 1)[0].isdigit() and int(version.split(".", 1)[0]) >= 3:
-        return Path(sys.executable)
+    parts = version.split(".")
+    if len(parts) >= 3 and all(part.isdigit() for part in parts[:3]):
+        if tuple(int(part) for part in parts[:3]) >= (3, 2, 8):
+            return Path(sys.executable)
     isolated = Path.home() / ".velto/mobile/android/qt/cython3"
     executable = isolated / "bin/python"
     if not executable.is_file():
         _run([sys.executable, "-m", "venv", str(isolated)])
         _run([
             str(executable), "-m", "pip", "install",
-            "--disable-pip-version-check", "Cython>=3.1,<4",
+            "--disable-pip-version-check", "Cython>=3.2.8,<4",
         ])
     check = subprocess.run(
         [str(executable), "-c",
-         "import Cython; assert int(Cython.__version__.split('.')[0]) >= 3"],
+         "import Cython; assert tuple(map(int, Cython.__version__.split('.')[:3])) >= (3, 2, 8)"],
         capture_output=True, text=True, check=False,
     )
     if check.returncode:
         raise RuntimeError(
-            "Cython>=3 is required for Android native extensions. The "
+            "Cython>=3.2.8 is required for Python 3.14-compatible extensions. The "
             "isolated compiler environment is invalid. No .pyc fallback."
         )
     return executable
