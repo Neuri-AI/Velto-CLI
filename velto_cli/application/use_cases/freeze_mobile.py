@@ -26,6 +26,7 @@ class FreezeMobileUseCase:
         init_only: bool = False,
         debug: bool = False,
         clean: bool = False,
+        protect_source: bool = False,
         wheel_pyside: str | None = None,
         wheel_shiboken: str | None = None,
     ) -> MobileBuildArtifact | None:
@@ -39,6 +40,11 @@ class FreezeMobileUseCase:
             framework = MobileFramework(raw_framework.strip().lower())
         except ValueError as exc:
             raise ValueError("Mobile builds support only Kivy or PySide6") from exc
+
+        if protect_source and (target is not MobileTarget.ANDROID or framework is not MobileFramework.PYSIDE6):
+            raise ValueError("--protect-source currently supports only PySide6 Android APKs")
+        if protect_source and init_only:
+            raise ValueError("--protect-source cannot be combined with --init-spec")
 
         app_name = self._settings.get_optional("app_name", root.name)
         version = self._settings.get_optional("version", "0.1.0")
@@ -62,6 +68,7 @@ class FreezeMobileUseCase:
             project_root=root, target=target, framework=framework,
             app_name=str(app_name), version=str(version),
             entry_point=entry_point, debug=debug, init_only=init_only, clean=clean,
+            protect_source=protect_source,
             wheel_pyside=resolve_wheel(wheel_pyside),
             wheel_shiboken=resolve_wheel(wheel_shiboken),
         )
