@@ -108,36 +108,53 @@ def test_protect_source_is_read_from_android_json(tmp_path):
 
 
 def test_release_credentials_read_sign_json(tmp_path):
+    import json
+    import secrets
     from velto_cli.adapters.mobile.qt.android_release import _release_credentials
+
     settings = tmp_path / "settings"
     settings.mkdir()
     store = tmp_path / "release.jks"
     store.write_bytes(b"keystore")
-    (settings / "sign.json").write_text(
-        '{"android": {"keystore": "release.jks", "alias": "release", '
-        '"keystore_password": "store-pass", "key_password": "key-pass"}}'
-    )
+    store_password = secrets.token_urlsafe(18)
+    key_password = secrets.token_urlsafe(18)
+    (settings / "sign.json").write_text(json.dumps({
+        "android": {
+            "keystore": "release.jks",
+            "alias": "release",
+            "keystore_password": store_password,
+            "key_password": key_password,
+        },
+    }))
     assert _release_credentials(tmp_path) == (
-        store.resolve(), "release", "store-pass", "key-pass"
+        store.resolve(), "release", store_password, key_password
     )
 
 
 def test_release_credentials_env_override_sign_json(tmp_path, monkeypatch):
+    import json
+    import secrets
     from velto_cli.adapters.mobile.qt.android_release import _release_credentials
+
     settings = tmp_path / "settings"
     settings.mkdir()
     store = tmp_path / "ci.jks"
     store.write_bytes(b"ci")
-    (settings / "sign.json").write_text(
-        '{"android": {"keystore": "missing.jks", "alias": "old", '
-        '"keystore_password": "old", "key_password": "old"}}'
-    )
+    (settings / "sign.json").write_text(json.dumps({
+        "android": {
+            "keystore": "missing.jks", "alias": "old",
+            "keystore_password": secrets.token_urlsafe(18),
+            "key_password": secrets.token_urlsafe(18),
+        },
+    }))
+    store_password = secrets.token_urlsafe(18)
+    key_password = secrets.token_urlsafe(18)
     monkeypatch.setenv("VELTO_ANDROID_KEYSTORE", str(store))
     monkeypatch.setenv("VELTO_ANDROID_KEY_ALIAS", "ci")
-    monkeypatch.setenv("VELTO_ANDROID_KEYSTORE_PASSWORD", "ci-store-pass")
-    monkeypatch.setenv("VELTO_ANDROID_KEY_PASSWORD", "ci-key-pass")
+    monkeypatch.setenv("VELTO_ANDROID_KEYSTORE_PASSWORD", store_password)
+    monkeypatch.setenv("VELTO_ANDROID_KEY_PASSWORD", key_password)
     assert _release_credentials(tmp_path) == (
-        store.resolve(), "ci", "ci-store-pass", "ci-key-pass"
+        store.resolve(), "ci", store_password, key_password
     )
 
 
