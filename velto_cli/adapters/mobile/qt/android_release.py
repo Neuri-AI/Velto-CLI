@@ -44,28 +44,46 @@ def _owned(name: str, root: Path) -> bool:
 
 
 def _compile_bytecode(source: bytes, name: str) -> bytes:
-    # Transform literal PSX at build time, matching Velto desktop freeze.
-    # This is necessary because Android must not depend on reading .py files
-    # to compile @component bodies at runtime.
-    if not name.startswith(PACKAGES) and b"psx(" in source:
-        from psx.markup.transform import transform_source
-        source = transform_source(source.decode("utf-8"), filename=name).source.encode("utf-8")
-    code = compile(source, name, "exec", optimize=2, dont_inherit=True)
-    # Sourceless imports recognize module.pyc and package/__init__.pyc.
+    """Build sourceless CPython bytecode with transformed project PSX."""
+    if not name.startswith(tuple(package + "/" for package in PACKAGES)):
+        if b"psx(" in source:
+            from psx.markup.transform import transform_source
+            source = transform_source(
+                source.decode("utf-8"), filename=name
+            ).source.encode("utf-8")
+        # Mark project modules as precompiled so @component does not use
+        # inspect.getsourcelines() on absent .py files at runtime.
+        tree = ast.parse(source, filename=name)
+        index = 0
+        if (tree.body and isinstance(tree.body[0], ast.Expr)
+                and isinstance(tree.body[0].value, ast.Constant)
+                and isinstance(tree.body[0].value.value, str)):
+            index = 1
+        while (index < len(tree.body)
+               and isinstance(tree.body[index], ast.ImportFrom)
+               and tree.body[index].module == "__future__"):
+            index += 1
+        tree.body.insert(index, ast.Assign(
+            targets=[ast.Name(id="__psx_build_precompiled__", ctx=ast.Store())],
+            value=ast.Constant(value=True),
+        ))
+        code = compile(
+            ast.fix_missing_locations(tree), name, "exec",
+            optimize=2, dont_inherit=True,
+        )
+    else:
+        code = compile(source, name, "exec", optimize=2, dont_inherit=True)
     return _bootstrap_external._code_to_timestamp_pyc(
         code, mtime=0, source_size=len(source)
     )
 
 
 def _bootstrap() -> bytes:
-    # p4a launches main.py. Keep only a small bootstrap, not the app source.
+    # p4a executes main.py. It contains only this minimal entry point.
     return (
-        b"from pathlib import Path
-"
-        b"import runpy
-"
-        b"runpy.run_path(str(Path(__file__).with_suffix('.pyc')), run_name='__main__')
-"
+        b"from pathlib import Path\n"
+        b"import runpy\n"
+        b"runpy.run_path(str(Path(__file__).with_suffix('.pyc')), run_name='__main__')\n"
     )
 
 
