@@ -114,7 +114,8 @@ def staged_android_project(root: Path) -> Iterator[Path]:
             kept = []
             for directory in sorted(dirs):
                 rel = (relative_parent / directory).as_posix()
-                if (directory in ignored or directory in inspection
+                if (directory in ignored or directory.startswith(".")
+                        or directory in inspection
                         or directory.startswith(".velto-android-")
                         or is_android_excluded(rel, patterns)):
                     continue
@@ -139,4 +140,14 @@ def staged_android_project(root: Path) -> Iterator[Path]:
                         f"Android stage refuses symlinked project file: {rel}"
                     )
                 shutil.copy2(source, dest / file)
+        # Qt's generated spec may contain absolute paths to the developer's
+        # working tree. Redirect those references into the filtered copy.
+        # This never modifies the original specification.
+        spec = stage / "pysidedeploy.spec"
+        if spec.is_file():
+            content = spec.read_text(encoding="utf-8")
+            if str(root) in content:
+                spec.write_text(
+                    content.replace(str(root), str(stage)), encoding="utf-8"
+                )
         yield stage
