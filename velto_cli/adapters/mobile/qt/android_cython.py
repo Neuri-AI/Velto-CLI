@@ -79,31 +79,75 @@ def _ndk_tools(api: int) -> tuple[Path, Path | None]:
     )
 
 
+def _python_header_roots(toolchain_root: Path) -> list[Path]:
+    """Discover p4a build trees without touching developer-owned files."""
+    candidates = [
+        toolchain_root / ".buildozer/android/platform",
+        Path.home() / ".buildozer/android/platform",
+        Path.home() / ".pyside6_android_deploy",
+    ]
+    # Qt can reuse global Buildozer/p4a distributions even when the
+    # disposable project stage has no retained CPython recipe headers.
+    for variable in ("P4A_BUILD_ROOT", "VELTO_ANDROID_P4A_BUILD_ROOT"):
+        if os.environ.get(variable):
+            candidates.insert(0, Path(os.environ[variable]).expanduser())
+    return [candidate for candidate in candidates if candidate.is_dir()]
+
+
 def _target_headers(toolchain_root: Path, version: tuple[int, int]) -> list[Path]:
-    base = toolchain_root / ".buildozer/android/platform"
-    if not base.is_dir():
-        raise RuntimeError("Cython Android requires the retained p4a build headers")
+    """Find Android-target Python.h and pyconfig.h from the SAME p4a recipe.
+
+    python-for-android's Python3Recipe installs headers in
+    android-build/android-root/include/pythonX.Y. Never use host/Conda
+    pyconfig.h: it describes macOS, not Android.
+    """
     wanted = f"python{version[0]}.{version[1]}"
-    # Prefer the target Python installation headers, not Conda/macOS headers.
-    matches = sorted(base.glob(f"build-*/build/python-installs/**/include/{wanted}/Python.h"))
-    matches += sorted(base.glob("build-*/build/other_builds/python3*/**/Include/Python.h"))
-    for header in matches:
-        include = header.parent
-        candidates = [include]
-        build_root = include.parent
-        candidates += [build_root, build_root / "android-build", build_root / "PC"]
-        candidates += list(include.parent.glob("**/android-build"))
-        config = next(
-            (item for item in candidates if (item / "pyconfig.h").is_file()),
-            None,
+    searched: list[str] = []
+    for root in _python_header_roots(toolchain_root):
+        searched.append(str(root))
+        # Restrict globbing to plausible recipe / install roots. The earlier
+        # selector incorrectly required python-installs and omitted the actual
+        # Android python3 recipe's android-root include directory.
+        patterns = (
+            f"build-*/build/other_builds/python3*/**/android-build/android-root/include/{wanted}/Python.h",
+            f"build-*/build/python-installs/**/include/{wanted}/Python.h",
+            f"**/android-build/android-root/include/{wanted}/Python.h",
+            f"**/python-installs/**/include/{wanted}/Python.h",
         )
-        if config is not None:
-            return list(dict.fromkeys([include, config]))
+        seen: set[Path] = set()
+        for pattern in patterns:
+            for header in sorted(root.glob(pattern)):
+                include = header.parent
+                if include in seen:
+                    continue
+                seen.add(include)
+                if (include / "pyconfig.h").is_file():
+                    return [include]
+                # Do not combine headers from different CPython builds.
+                # Only the same recipe's android-build tree is acceptable.
+                build = next(
+                    (parent for parent in include.parents if parent.name == "android-build"),
+                    None,
+                )
+                if build is not None:
+                    for config in (
+                        build / "pyconfig.h",
+                        build / "Include/pyconfig.h",
+                        build / "android-root/include/pyconfig.h",
+                    ):
+                        if config.is_file():
+                            return [include, config.parent]
     raise RuntimeError(
-        f"Missing target CPython {version[0]}.{version[1]} development headers "
-        "and pyconfig.h in retained python-for-android build. Cannot build "
-        "Cython extensions safely; no bytecode fallback."
+        f"Cython Android needs CPython {version[0]}.{version[1]} TARGET "
+        "headers (Python.h and Android pyconfig.h), but the reused p4a "
+        "distribution has no retained Python recipe build. Searched: "
+        + ", ".join(searched or ["no p4a build roots found"])
+        + ". Do not install host Python headers or copy macOS pyconfig.h. "
+        "Rebuild the p4a Python recipe with retained Android build files, "
+        "or provide its build directory via VELTO_ANDROID_P4A_BUILD_ROOT. "
+        "No .pyc fallback."
     )
+
 
 
 def _run(command: list[str], *, cwd: Path | None = None) -> None:
