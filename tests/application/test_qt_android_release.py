@@ -92,7 +92,7 @@ def test_release_does_not_rewrite_debug_apk(tmp_path):
     root.mkdir()
     apk = tmp_path / "app-debug.apk"
     apk.write_bytes(b"original")
-    with pytest.raises(RuntimeError, match="release APK"):
+    with pytest.raises(RuntimeError, match="debug/release signing mode"):
         protect_android_release_apk(apk, root)
     assert apk.read_bytes() == b"original"
 
