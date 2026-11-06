@@ -36,29 +36,43 @@ def _candidate_interpreters(version: tuple[int, int], toolchain_root: Path | Non
     explicit = os.environ.get("VELTO_ANDROID_BYTECODE_PYTHON")
     if explicit:
         yield explicit
-    # Discover hostpython3 in the staged native build, never an Android ELF.
+    # p4a hostpython3 installs to native-build/root/usr/local/bin/python.
+    # That executable normally exists during fresh builds but may be omitted
+    # when p4a reuses an existing distribution and cleans build directories.
     if toolchain_root is not None:
         platform = toolchain_root / ".buildozer/android/platform"
         if platform.is_dir():
-            for build in sorted(platform.glob("build-*/build/other_builds/hostpython3*")):
-                for name in ("python3", wanted, "hostpython3"):
-                    for executable in sorted(build.glob(f"**/native-build/{name}")):
-                        yield str(executable)
-                    for executable in sorted(build.glob(f"**/native-build/bin/{name}")):
-                        yield str(executable)
+            for build_root in sorted(platform.glob(
+                "build-*/build/other_builds/hostpython3*"
+            )):
+                for pattern in (
+                    "**/native-build/root/usr/local/bin/python",
+                    "**/native-build/root/usr/local/bin/python3",
+                    f"**/native-build/root/usr/local/bin/{wanted}",
+                    "**/native-build/python",
+                    "**/native-build/python3",
+                    f"**/native-build/{wanted}",
+                    "**/native-build/bin/python3",
+                    f"**/native-build/bin/{wanted}",
+                ):
+                    for executable in sorted(build_root.glob(pattern)):
+                        if executable.is_file():
+                            yield str(executable)
     if sys.version_info[:2] == version:
         yield sys.executable
     executable = shutil.which(wanted)
     if executable:
         yield executable
-    # On macOS, Homebrew python@3.X is commonly linked here without PATH.
     for candidate in (
+        f"/opt/homebrew/opt/python@{version[0]}.{version[1]}/bin/{wanted}",
+        f"/usr/local/opt/python@{version[0]}.{version[1]}/bin/{wanted}",
         f"/opt/homebrew/bin/{wanted}",
         f"/usr/local/bin/{wanted}",
-        str(Path.home() / f".local/share/uv/python/cpython-{version[0]}.{version[1]}"),
+        f"/usr/bin/{wanted}",
     ):
         if Path(candidate).is_file():
             yield candidate
+
 
 
 def find_android_bytecode_python(
