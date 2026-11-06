@@ -1,7 +1,19 @@
 # Android release source minimization (PySide6)
 
-Velto's **debug** workflow retains Python source and supports incremental APK
+Velto's ordinary **debug** workflow retains Python source and supports incremental APK
 re-signing. Use `velto build --target android --debug` for development.
+
+To test bytecode-only packaging on a device without any release signing key:
+
+```shell
+velto build --target android --debug --protect-source
+```
+
+The protected debug artifact uses Android's automatic **debug keystore**,
+not a release key. The incremental cache keeps an unprotected base APK and
+re-signs only the published protected output. Do **not** distribute the debug
+key as a production identity. A debug APK is still signed: Android does not
+install unsigned APKs.
 
 A **non-debug** PySide6 Android build is fail-closed: Velto refuses to publish
 an APK/AAB when it cannot verify a source-minimized Android release.
