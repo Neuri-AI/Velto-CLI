@@ -232,7 +232,11 @@ def test_android_json_does_not_accept_signing_secrets(tmp_path):
 def test_sign_json_leak_in_apk_is_rejected(tmp_path):
     settings = tmp_path / "settings"
     settings.mkdir()
-    (settings / "sign.json").write_text('{"android": {"key_password": "local-secret"}}')
+    import json
+    import secrets
+    (settings / "sign.json").write_text(json.dumps({
+        "android": {"key_password": secrets.token_urlsafe(18)},
+    }))
     private = io.BytesIO()
     with tarfile.open(fileobj=private, mode="w:gz") as tar:
         raw = (settings / "sign.json").read_bytes()
