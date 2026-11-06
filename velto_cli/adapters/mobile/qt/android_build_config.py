@@ -12,6 +12,8 @@ ANDROID_SIGN_CONFIG = "settings/sign.json"
 ALWAYS_EXCLUDED = frozenset({
     ANDROID_CONFIG,
     ANDROID_SIGN_CONFIG,
+    "settings/secrets.json",
+    "src/sign/",
     "*.jks", "*.keystore", "*.p12", "*.pfx",
 })
 _IGNORED_TREES = frozenset({
@@ -130,37 +132,6 @@ def verify_android_exclusions(apk: Path, root: Path) -> None:
         raise RuntimeError(
             "Android APK contains excluded build-only files: "
             + ", ".join(forbidden[:12])
-        )
-
-
-def assert_android_full_build_safe(root: Path) -> None:
-    """Fail closed rather than moving developer files into ephemeral storage.
-
-    The PySide6 Android frontend recursively stages the project and provides
-    no guaranteed per-file exclusion hook. Incremental builds exclude files
-    without touching them; full builds are blocked until a separate staging
-    workspace can be used safely.
-    """
-    patterns = android_exclusion_patterns(root)
-    found = []
-    for parent, dirs, files in os.walk(root, followlinks=False):
-        directory = Path(parent)
-        dirs[:] = [name for name in dirs if name not in _IGNORED_TREES]
-        for name in (*dirs, *files):
-            relative = (directory / name).relative_to(root).as_posix()
-            if is_android_excluded(relative, patterns):
-                found.append(relative)
-        dirs[:] = [
-            name for name in dirs if not is_android_excluded(
-                (directory / name).relative_to(root).as_posix(), patterns
-            )
-        ]
-    if found:
-        raise RuntimeError(
-            "Refusing full Android deployment while excluded project files "
-            "are present: " + ", ".join(sorted(found)[:12]) + ". "
-            "Files were NOT moved or deleted. Incremental builds may reuse "
-            "the APK cache; full builds require isolated source staging."
         )
 
 
