@@ -248,3 +248,34 @@ def test_protected_psx_preparation_sets_component_marker():
     ast.parse(compiled_source)
     assert b"__psx_build_precompiled__" in compiled_source
     assert b"__future__" in compiled_source
+
+
+def test_hostpython_discovery_checks_installed_p4a_root_prefix(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_bytecode import (
+        _candidate_interpreters,
+    )
+    hostpython = (
+        tmp_path / ".buildozer/android/platform/build-arm64-v8a/build/"
+        "other_builds/hostpython3/desktop/hostpython3/native-build/"
+        "root/usr/local/bin/python"
+    )
+    hostpython.parent.mkdir(parents=True)
+    hostpython.write_bytes(b"fake binary")
+    assert str(hostpython) in list(_candidate_interpreters((3, 14), tmp_path))
+
+
+def test_hostpython_fallback_recognizes_homebrew_python(tmp_path, monkeypatch):
+    from velto_cli.adapters.mobile.qt import android_bytecode
+    monkeypatch.delenv("VELTO_ANDROID_BYTECODE_PYTHON", raising=False)
+    original_is_file = android_bytecode.Path.is_file
+
+    def fake_is_file(self):
+        if str(self) == "/opt/homebrew/opt/python@3.14/bin/python3.14":
+            return True
+        return original_is_file(self)
+
+    monkeypatch.setattr(android_bytecode.Path, "is_file", fake_is_file)
+    assert (
+        "/opt/homebrew/opt/python@3.14/bin/python3.14"
+        in list(android_bytecode._candidate_interpreters((3, 14), None))
+    )
