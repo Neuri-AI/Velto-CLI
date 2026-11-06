@@ -107,13 +107,13 @@ def test_protect_source_is_read_from_android_json(tmp_path):
     assert builder.freeze.call_args.args[0].protect_source is True
 
 
-def test_release_credentials_read_android_json(tmp_path):
+def test_release_credentials_read_sign_json(tmp_path):
     from velto_cli.adapters.mobile.qt.android_release import _release_credentials
     settings = tmp_path / "settings"
     settings.mkdir()
     store = tmp_path / "release.jks"
     store.write_bytes(b"keystore")
-    (settings / "android.json").write_text(
+    (settings / "sign.json").write_text(
         '{"android": {"keystore": "release.jks", "alias": "release", '
         '"keystore_password": "store-pass", "key_password": "key-pass"}}'
     )
@@ -122,13 +122,13 @@ def test_release_credentials_read_android_json(tmp_path):
     )
 
 
-def test_release_credentials_env_override_json(tmp_path, monkeypatch):
+def test_release_credentials_env_override_sign_json(tmp_path, monkeypatch):
     from velto_cli.adapters.mobile.qt.android_release import _release_credentials
     settings = tmp_path / "settings"
     settings.mkdir()
     store = tmp_path / "ci.jks"
     store.write_bytes(b"ci")
-    (settings / "android.json").write_text(
+    (settings / "sign.json").write_text(
         '{"android": {"keystore": "missing.jks", "alias": "old", '
         '"keystore_password": "old", "key_password": "old"}}'
     )
