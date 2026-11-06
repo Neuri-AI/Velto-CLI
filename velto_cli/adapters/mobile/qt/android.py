@@ -14,12 +14,10 @@ from velto_cli.adapters.mobile.qt.android_release import (
 )
 from velto_cli.adapters.mobile.qt.android_build_inputs import (
     isolate_previous_android_build_outputs, staged_android_project,
-    force_p4a_native_rebuild,
 )
 from velto_cli.adapters.mobile.qt.android_build_config import (
     verify_android_exclusions, load_android_build_config,
 )
-from velto_cli.adapters.mobile.qt.android_cython import has_cached_target_headers
 from velto_cli.adapters.mobile.qt.android_incremental import (
     try_incremental_build, record_full_build,
 )
@@ -637,30 +635,19 @@ class QtAndroidBuilder:
             for suffix in ("*.apk", "*.aab")
             for p in root.glob(suffix) if p.is_file()
         }
-        # A reusable p4a distribution need not contain its original Python.h
-        # and target pyconfig.h. On first protected build, rebuild the native
-        # distribution rather than repeatedly accepting an uncompileable APK.
-        # Once target headers are persisted in Velto's ABI-keyed cache,
-        # normal p4a reuse resumes automatically.
-        rebuild_p4a = (
-            not request.init_only and request.protect_source
-            and (request.clean or not has_cached_target_headers())
-        )
-        if rebuild_p4a:
-            self._notice(
-                "Rebuilding Android CPython distribution to obtain target "
-                "headers for Cython; subsequent builds may reuse the header cache."
-            )
-        with force_p4a_native_rebuild(rebuild_p4a):
-            with isolate_previous_android_build_outputs(root):
-                try:
-                    self._run(args, root)
-                except RuntimeError:
-                    # Retry only for proven Qt bootstrap classpath defects.
-                    if request.init_only or not self._repair_qt_android_gradle(
-                        root, debug=request.debug
-                    ):
-                        raise
+        # Keep python-for-android's APK invocation under PySide6's control.
+        # Forcing a distribution build through APP_P4A_EXTRA_ARGS also forces
+        # the subsequent Qt APK packaging phase, which lacks --qt-libs and
+        # --load-local-libs. Any missing header recovery must run as a
+        # *separate p4a create command*, after the normal APK is produced.
+        with isolate_previous_android_build_outputs(root):
+            try:
+                self._run(args, root)
+            except RuntimeError:
+                if request.init_only or not self._repair_qt_android_gradle(
+                    root, debug=request.debug
+                ):
+                    raise
         if request.init_only:
             if not spec.is_file():
                 raise RuntimeError(
