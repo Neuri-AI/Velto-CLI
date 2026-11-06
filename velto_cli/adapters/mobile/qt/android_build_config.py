@@ -1,0 +1,141 @@
+"""Host-only Android settings, signing metadata, and centralized APK exclusions."""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from fnmatch import fnmatchcase
+import json
+import os
+from pathlib import Path, PurePosixPath
+import tempfile
+from typing import Iterator
+
+ANDROID_CONFIG = "settings/android.json"
+# Extend this set as new host-only files are discovered. Never package them.
+ALWAYS_EXCLUDED = frozenset({ANDROID_CONFIG})
+_IGNORED_TREES = frozenset({
+    ".git", ".buildozer", "build", ".venv", "venv", "__pycache__",
+    ".pytest_cache", "node_modules",
+})
+
+
+def load_android_build_config(root: Path) -> dict:
+    path = root / ANDROID_CONFIG
+    if not path.exists():
+        return {}
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{ANDROID_CONFIG} must be a regular file")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Cannot read {ANDROID_CONFIG}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{ANDROID_CONFIG} must be a JSON object")
+    if "protect_source" in value and type(value["protect_source"]) is not bool:
+        raise ValueError("android.json protect_source must be boolean")
+    if "signing" in value and not isinstance(value["signing"], dict):
+        raise ValueError("android.json signing must be an object")
+    patterns = value.get("exclude", [])
+    if not isinstance(patterns, list) or any(
+        not isinstance(pattern, str) or not pattern.strip()
+        or pattern.startswith("/") or ".." in PurePosixPath(pattern).parts
+        or "\\" in pattern
+        for pattern in patterns
+    ):
+        raise ValueError("android.json exclude must be a list of relative paths/globs")
+    return value
+
+
+def android_exclusion_patterns(root: Path) -> tuple[str, ...]:
+    config = load_android_build_config(root)
+    return tuple(sorted(ALWAYS_EXCLUDED.union(config.get("exclude", []))))
+
+
+def is_android_excluded(relative: str, patterns: tuple[str, ...]) -> bool:
+    name = relative.replace("\\", "/").removeprefix("./")
+    for pattern in patterns:
+        pattern = pattern.rstrip("/")
+        if name == pattern or name.startswith(pattern + "/") or fnmatchcase(name, pattern):
+            return True
+    return False
+
+
+def verify_android_exclusions(apk: Path, root: Path) -> None:
+    """Reject any excluded project file in the final signed archive."""
+    import io
+    import tarfile
+    from zipfile import ZipFile
+    patterns = android_exclusion_patterns(root)
+    with ZipFile(apk) as z:
+        private = [n for n in ("assets/private.tar", "assets/private.mp3") if n in z.namelist()]
+        if len(private) != 1:
+            raise RuntimeError("Android APK lacks a unique private archive")
+        with tarfile.open(fileobj=io.BytesIO(z.read(private[0])), mode="r:*") as tar:
+            forbidden = sorted(
+                member.name.removeprefix("./").strip("/")
+                for member in tar
+                if member.isfile() and is_android_excluded(
+                    member.name.removeprefix("./").strip("/"), patterns
+                )
+            )
+    if forbidden:
+        raise RuntimeError(
+            "Android APK contains excluded build-only files: "
+            + ", ".join(forbidden[:12])
+        )
+
+
+@contextmanager
+def isolate_android_excluded_sources(root: Path) -> Iterator[None]:
+    """Hide host-only files before PySide's own recursive source inspection.
+
+    Keep originals intact and restore even when the Android toolchain raises.
+    Directory exclusions are supported by moving each selected subtree,
+    without following symlinks or touching main.py.
+    """
+    patterns = android_exclusion_patterns(root)
+    selected: list[Path] = []
+    for base, dirs, files in os.walk(root, followlinks=False):
+        parent = Path(base)
+        if parent == root:
+            dirs[:] = [d for d in dirs if d not in _IGNORED_TREES]
+        else:
+            dirs[:] = [d for d in dirs if d not in _IGNORED_TREES]
+        for directory in tuple(dirs):
+            path = parent / directory
+            rel = path.relative_to(root).as_posix()
+            if is_android_excluded(rel, patterns):
+                if path.is_symlink():
+                    raise ValueError(f"Excluded Android directory is a symlink: {path}")
+                selected.append(path)
+                dirs.remove(directory)
+        for name in files:
+            path = parent / name
+            rel = path.relative_to(root).as_posix()
+            if is_android_excluded(rel, patterns):
+                if rel == "main.py":
+                    raise ValueError("Android entry point main.py cannot be excluded")
+                if path.is_symlink():
+                    raise ValueError(f"Excluded Android file is a symlink: {path}")
+                selected.append(path)
+    if not selected:
+        yield
+        return
+    temp = Path(tempfile.mkdtemp(prefix=".velto-android-excluded-", dir=root.parent))
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for index, original in enumerate(selected):
+            saved = temp / f"item-{index}"
+            original.rename(saved)
+            moved.append((original, saved))
+        yield
+    finally:
+        for original, saved in reversed(moved):
+            if original.exists() or original.is_symlink():
+                raise RuntimeError(
+                    f"Android toolchain replaced excluded path {original}; "
+                    f"preserved original at {saved}"
+                )
+            original.parent.mkdir(parents=True, exist_ok=True)
+            saved.rename(original)
+        if not any(temp.iterdir()):
+            temp.rmdir()
