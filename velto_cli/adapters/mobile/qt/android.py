@@ -7,7 +7,10 @@ from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
-from velto_cli.adapters.mobile.qt.android_release import protect_android_release_apk, verify_android_release_source_protection
+from velto_cli.adapters.mobile.qt.android_release import (
+    _release_credentials, protect_android_release_apk,
+    verify_android_release_source_protection,
+)
 from velto_cli.adapters.mobile.qt.android_build_inputs import isolate_previous_android_build_outputs
 from velto_cli.adapters.mobile.qt.android_incremental import (
     try_incremental_build, record_full_build,
@@ -494,6 +497,10 @@ class QtAndroidBuilder:
                 return MobileBuildArtifact(
                     quick, request.target, request.framework, "apk",
                 )
+        if enabled and not request.debug and not request.init_only:
+            # Validate release signing before downloading Qt wheels or running
+            # Buildozer. Never spend a full compile on an unsignable APK.
+            _release_credentials()
         with staged_velto_sources(request.project_root, enabled=enabled):
             built = self._pyside_android_impl(request)
         # Source staging has now been removed. Snapshot the real developer
