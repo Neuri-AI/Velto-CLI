@@ -155,3 +155,23 @@ def test_project_relative_signing_keystore_is_always_excluded(tmp_path):
     with isolate_android_excluded_sources(tmp_path):
         assert not store.exists()
     assert store.read_bytes() == b"PRIVATE-KEY"
+
+
+def test_init_spec_does_not_require_release_protection(tmp_path):
+    from unittest.mock import Mock
+    from velto_cli.application.use_cases.freeze_mobile import FreezeMobileUseCase
+    from velto_cli.domain.mobile import MobileTarget
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n")
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "android.json").write_text('{"protect_source": true}')
+    provider = Mock()
+    provider.get_optional.side_effect = lambda key, default=None: {
+        "framework": "pyside6",
+    }.get(key, default)
+    builder = Mock()
+    builder.freeze.return_value = None
+    FreezeMobileUseCase(builder, provider, Mock()).execute(
+        target=MobileTarget.ANDROID, project_root=tmp_path, init_only=True,
+    )
+    assert builder.freeze.call_args.args[0].protect_source is False
