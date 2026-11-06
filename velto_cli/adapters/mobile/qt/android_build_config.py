@@ -11,7 +11,10 @@ from typing import Iterator
 
 ANDROID_CONFIG = "settings/android.json"
 # Extend this set as new host-only files are discovered. Never package them.
-ALWAYS_EXCLUDED = frozenset({ANDROID_CONFIG})
+ALWAYS_EXCLUDED = frozenset({
+    ANDROID_CONFIG,
+    "*.jks", "*.keystore", "*.p12", "*.pfx",
+})
 _IGNORED_TREES = frozenset({
     ".git", ".buildozer", "build", ".venv", "venv", "__pycache__",
     ".pytest_cache", "node_modules",
@@ -47,7 +50,23 @@ def load_android_build_config(root: Path) -> dict:
 
 def android_exclusion_patterns(root: Path) -> tuple[str, ...]:
     config = load_android_build_config(root)
-    return tuple(sorted(ALWAYS_EXCLUDED.union(config.get("exclude", []))))
+    patterns = set(ALWAYS_EXCLUDED)
+    patterns.update(config.get("exclude", []))
+    # An explicitly configured keystore inside the project must never be
+    # shipped, regardless of its extension or location.
+    signing = config.get("signing", {})
+    stored = signing.get("keystore")
+    if isinstance(stored, str) and stored:
+        location = Path(stored).expanduser()
+        if not location.is_absolute():
+            location = root / location
+        try:
+            relative = location.resolve().relative_to(root.resolve())
+        except ValueError:
+            pass  # External keystore is outside the project's source scan.
+        else:
+            patterns.add(relative.as_posix())
+    return tuple(sorted(patterns))
 
 
 def is_android_excluded(relative: str, patterns: tuple[str, ...]) -> bool:
