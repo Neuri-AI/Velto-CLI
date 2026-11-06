@@ -29,7 +29,7 @@ def _apk(path: Path, files: dict[str, bytes]) -> None:
 
 def _elf_arm64_fixture():
     data = bytearray(32)
-    data[:6] = b"\\x7fELF\\x02\\x01"
+    data[:6] = b"\x7fELF\x02\x01"
     data[18:20] = (183).to_bytes(2, "little")
     return bytes(data)
 
