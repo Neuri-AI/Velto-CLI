@@ -232,13 +232,13 @@ def test_p4a_recovery_finds_verified_qt_dist_without_metadata(tmp_path, monkeypa
         tmp_path / ".buildozer/android/platform/build-arm64-v8a"
         / "dists/AndroidAppQt"
     )
-    libs = dist / "libs/arm64-v8a"
-    libs.mkdir(parents=True)
-    (libs / "libmain_arm64-v8a.so").write_bytes(b"fixture")
-    (libs / "libpython3.14.so").write_bytes(b"fixture")
     apk = dist / "build/outputs/apk/debug/AndroidAppQt-debug.apk"
     apk.parent.mkdir(parents=True)
-    apk.write_bytes(b"fixture")
+    from zipfile import ZipFile
+    with ZipFile(apk, "w") as archive:
+        archive.writestr("lib/arm64-v8a/libmain_arm64-v8a.so", b"fixture")
+        archive.writestr("lib/arm64-v8a/libpython3.14.so", b"fixture")
+        archive.writestr("assets/private.tar", b"fixture")
     (tmp_path / "deployment/recipes").mkdir(parents=True)
     monkeypatch.setattr(p4a, "_ndk_root", lambda: tmp_path / "ndk")
     monkeypatch.setattr(p4a, "_android_sdk_root", lambda: tmp_path / "sdk")
