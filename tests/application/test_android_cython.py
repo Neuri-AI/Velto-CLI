@@ -69,3 +69,54 @@ def test_cython_can_translate_package_native_initializer(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "PyInit_components" in output.read_text(encoding="utf-8")
+
+
+def test_cython_finds_actual_p4a_android_root_headers(tmp_path, monkeypatch):
+    from velto_cli.adapters.mobile.qt import android_cython
+    platform = tmp_path / ".buildozer/android/platform"
+    include = (
+        platform / "build-arm64-v8a/build/other_builds/python3/arm64-v8a__ndk_target_28"
+        / "python3/android-build/android-root/include/python3.14"
+    )
+    include.mkdir(parents=True)
+    (include / "Python.h").write_text("/* Android target */")
+    (include / "pyconfig.h").write_text("/* Android ABI */")
+    monkeypatch.setattr(
+        android_cython, "_python_header_roots", lambda root: [platform],
+    )
+    assert android_cython._target_headers(tmp_path, (3, 14)) == [include]
+
+
+def test_cython_rejects_macos_pyconfig_for_android(tmp_path, monkeypatch):
+    from velto_cli.adapters.mobile.qt import android_cython
+    platform = tmp_path / ".buildozer/android/platform"
+    include = (
+        platform / "build-arm64-v8a/build/other_builds/python3/arm64"
+        / "python3/android-build/android-root/include/python3.14"
+    )
+    include.mkdir(parents=True)
+    (include / "Python.h").write_text("/* target */")
+    # No Android pyconfig.h. Host pyconfig.h elsewhere is forbidden.
+    (tmp_path / "macos-pyconfig.h").write_text("/* host */")
+    monkeypatch.setattr(
+        android_cython, "_python_header_roots", lambda root: [platform],
+    )
+    with pytest.raises(RuntimeError, match="TARGET headers"):
+        android_cython._target_headers(tmp_path, (3, 14))
+
+
+def test_cython_can_find_reused_global_p4a_headers(tmp_path, monkeypatch):
+    from velto_cli.adapters.mobile.qt import android_cython
+    global_platform = tmp_path / "global" / ".buildozer/android/platform"
+    include = (
+        global_platform / "build-arm64-v8a/build/other_builds/python3/android"
+        / "python3/android-build/android-root/include/python3.14"
+    )
+    include.mkdir(parents=True)
+    (include / "Python.h").write_text("/* target */")
+    (include / "pyconfig.h").write_text("/* target */")
+    monkeypatch.setattr(
+        android_cython, "_python_header_roots",
+        lambda stage: [stage / ".buildozer/android/platform", global_platform],
+    )
+    assert android_cython._target_headers(tmp_path / "stage", (3, 14)) == [include]
