@@ -21,7 +21,8 @@ import tempfile
 from zipfile import ZipFile
 
 from velto_cli.adapters.mobile.qt.android_final_apk import (
-    _amended_private_tar, _android_sdk_tool, replace_android_private_version,
+    _amended_private_tar, _android_sdk_tool, _debug_keystore,
+    replace_android_private_version,
 )
 from velto_cli.adapters.mobile.qt.android_sources import PACKAGES
 
@@ -108,15 +109,16 @@ def _private_entry(name: str) -> bool:
     return name in ("assets/private.tar", "assets/private.mp3")
 
 
-def protect_android_release_apk(apk: Path, root: Path) -> Path:
+def protect_android_apk(apk: Path, root: Path, *, debug: bool) -> Path:
     """Rewrite source files into same-version sourceless bytecode and re-sign.
 
     The caller must supply a real release APK. Signatures and bytecode format
     are verified before publishing; failures do not mutate the input artifact.
     """
-    if apk.suffix.lower() != ".apk" or "debug" in apk.stem.lower():
+    if apk.suffix.lower() != ".apk" or (("debug" in apk.stem.lower()) != debug):
         raise RuntimeError(
-            "Protected Android release requires a release APK, not a debug APK/AAB."
+            "Android source protection requires an APK matching the selected "
+            "debug/release signing mode; AAB is not supported."
         )
     # Android bytecode must match the embedded interpreter magic/version.
     # Inspect the packaged CPython native library, not a guessed Qt version.
@@ -132,7 +134,12 @@ def protect_android_release_apk(apk: Path, root: Path) -> Path:
             f"host={sys.version_info[:2]}, APK interpreter(s)={sorted(embedded)}. "
             "Release requires a matching Python interpreter."
         )
-    store, alias, store_password, key_password = _release_credentials()
+    if debug:
+        store, alias, store_password, key_password = (
+            _debug_keystore(), "androiddebugkey", "android", "android"
+        )
+    else:
+        store, alias, store_password, key_password = _release_credentials()
     with ZipFile(apk) as archive:
         names = [name for name in archive.namelist() if _private_entry(name)]
         if len(names) != 1 or "resources.arsc" not in archive.namelist():
@@ -252,3 +259,8 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
             bootstrap = tar.extractfile("main.py")
             if bootstrap is None or bootstrap.read() != _bootstrap():
                 raise RuntimeError("Protected release contains an unverified main.py")
+
+
+def protect_android_release_apk(apk: Path, root: Path) -> Path:
+    """Backward-compatible release entry point; never uses a debug key."""
+    return protect_android_apk(apk, root, debug=False)
