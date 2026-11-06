@@ -8,6 +8,9 @@ files on Android or substitute .pyc.
 from __future__ import annotations
 
 import os
+import hashlib
+import shutil
+import tempfile
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -79,6 +82,72 @@ def _ndk_tools(api: int) -> tuple[Path, Path | None]:
     )
 
 
+def _target_header_cache() -> Path:
+    """Persistent ABI-specific native header cache, outside every project."""
+    return Path.home() / ".velto/mobile/android/qt/target-python-headers"
+
+
+def has_cached_target_headers() -> bool:
+    """Used only to decide whether p4a must rebuild its Python recipe."""
+    base = _target_header_cache()
+    if not base.is_dir():
+        return False
+    return any(
+        (child / "include/Python.h").is_file()
+        and (
+            (child / "include/pyconfig.h").is_file()
+            or (child / "config/pyconfig.h").is_file()
+        )
+        for child in base.iterdir() if child.is_dir()
+    )
+
+
+def _cached_headers(libpython_hash: str) -> list[Path] | None:
+    base = _target_header_cache() / libpython_hash
+    include, config = base / "include", base / "config"
+    if (include / "Python.h").is_file():
+        if (include / "pyconfig.h").is_file():
+            return [include]
+        if (config / "pyconfig.h").is_file():
+            return [include, config]
+    return None
+
+
+def _cache_headers(headers: list[Path], libpython_hash: str) -> list[Path]:
+    """Persist only headers produced by this exact Android libpython build.
+
+    Do not move originals; copy after verifying no directory symlinks can
+    escape the transient build tree. Cache paths include the binary hash.
+    """
+    cached = _cached_headers(libpython_hash)
+    if cached:
+        return cached
+    root = _target_header_cache()
+    root.mkdir(parents=True, exist_ok=True)
+    destination = root / libpython_hash
+    with tempfile.TemporaryDirectory(prefix=".velto-headers-", dir=root) as tmp:
+        stage = Path(tmp)
+        shutil.copytree(
+            headers[0], stage / "include", symlinks=False,
+        )
+        if len(headers) > 1:
+            (stage / "config").mkdir()
+            shutil.copy2(headers[1] / "pyconfig.h", stage / "config/pyconfig.h")
+        if not (stage / "include/Python.h").is_file():
+            raise RuntimeError("Cannot cache Android target Python.h")
+        if not (
+            (stage / "include/pyconfig.h").is_file()
+            or (stage / "config/pyconfig.h").is_file()
+        ):
+            raise RuntimeError("Cannot cache Android target pyconfig.h")
+        if not destination.exists():
+            stage.rename(destination)
+    result = _cached_headers(libpython_hash)
+    if not result:
+        raise RuntimeError("Android target header cache was not preserved")
+    return result
+
+
 def _python_header_roots(toolchain_root: Path) -> list[Path]:
     """Discover p4a build trees without touching developer-owned files."""
     candidates = [
@@ -94,7 +163,10 @@ def _python_header_roots(toolchain_root: Path) -> list[Path]:
     return [candidate for candidate in candidates if candidate.is_dir()]
 
 
-def _target_headers(toolchain_root: Path, version: tuple[int, int]) -> list[Path]:
+def _target_headers(
+    toolchain_root: Path, version: tuple[int, int],
+    libpython_hash: str | None = None,
+) -> list[Path]:
     """Find Android-target Python.h and pyconfig.h from the SAME p4a recipe.
 
     python-for-android's Python3Recipe installs headers in
@@ -102,6 +174,10 @@ def _target_headers(toolchain_root: Path, version: tuple[int, int]) -> list[Path
     pyconfig.h: it describes macOS, not Android.
     """
     wanted = f"python{version[0]}.{version[1]}"
+    if libpython_hash:
+        cached = _cached_headers(libpython_hash)
+        if cached:
+            return cached
     explicit = os.environ.get("VELTO_ANDROID_PYTHON_INCLUDE")
     if explicit:
         include = Path(explicit).expanduser().resolve()
@@ -248,7 +324,12 @@ def compile_android_extensions(
             target_lib.write_bytes(bundle.read(library))
             if not _is_elf_arm64(target_lib.read_bytes()[:32]):
                 raise RuntimeError("APK libpython is not an ARM64 ELF binary")
-            headers = _target_headers(toolchain_root, version)
+            target_hash = hashlib.sha256(target_lib.read_bytes()).hexdigest()
+            headers = _target_headers(
+                toolchain_root, version, libpython_hash=target_hash,
+            )
+            if _cached_headers(target_hash) is None:
+                headers = _cache_headers(headers, target_hash)
             for index, (name, source, destination) in enumerate(jobs):
                 mod = module_name(name)
                 cfile = link / f"module_{index}.c"
