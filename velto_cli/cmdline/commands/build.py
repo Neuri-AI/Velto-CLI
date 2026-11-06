@@ -110,6 +110,13 @@ class BuildCommand:
         )
 
         parser.add_argument(
+            "--protect-source",
+            dest="protect_source",
+            action="store_true",
+            help="Compile Python/PSX to sourceless bytecode in a signed Android APK; --debug uses automatic debug signing.",
+        )
+
+        parser.add_argument(
             "--init-spec",
             dest="init_spec",
             action="store_true",
@@ -139,6 +146,7 @@ class BuildCommand:
                     init_only=getattr(args, "init_spec", False),
                     debug=bool(getattr(args, "debug", False)),
                     clean=bool(getattr(args, "clean", False)),
+                    protect_source=bool(getattr(args, "protect_source", False)),
                     wheel_pyside=getattr(args, "wheel_pyside", None),
                     wheel_shiboken=getattr(args, "wheel_shiboken", None),
                 )
@@ -146,6 +154,10 @@ class BuildCommand:
             except Exception as exc:
                 c.ui.error(str(exc))
                 return 1
+
+        if bool(getattr(args, "protect_source", False)):
+            c.ui.error("--protect-source is supported only for Android PySide6 builds")
+            return 1
 
         # Determine profile from --profile or --target if user specifies platform OS
         profile_val = getattr(args, "profile", "release")
