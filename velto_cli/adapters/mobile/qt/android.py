@@ -7,6 +7,7 @@ from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
+from velto_cli.adapters.mobile.qt.android_release import protect_android_release_apk, verify_android_release_source_protection
 from velto_cli.adapters.mobile.qt.android_build_inputs import isolate_previous_android_build_outputs
 from velto_cli.adapters.mobile.qt.android_incremental import (
     try_incremental_build, record_full_build,
@@ -678,6 +679,13 @@ class QtAndroidBuilder:
             verify_qt_android_runtime_assets(artifact, root)
         if svg_required:
             verify_android_svg_apk(artifact)
+        if not request.debug:
+            # Do not publish release artifacts containing readable project
+            # Python sources. This also rejects Qt returning a debug APK
+            # for a purported release build.
+            artifact = protect_android_release_apk(artifact, root)
+            verify_android_release_source_protection(artifact, root)
+            self._notice("Protected Android release bytecode verified and APK signed.")
         published = self._publish_android_artifact(
             artifact, root, backend="qt"
         )
