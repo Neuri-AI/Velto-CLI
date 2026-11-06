@@ -49,7 +49,9 @@ is `true`. Release builds always require source protection.
 
 The central policy is implemented in
 `velto_cli/adapters/mobile/qt/android_build_config.py`.
-`settings/android.json` is always excluded. The `exclude` array accepts
+`settings/android.json` is always excluded. Keystore files (`.jks`,
+`.keystore`, `.p12`, `.pfx`) and the configured signing keystore are also
+excluded, even when the keystore has a custom extension. The `exclude` array accepts
 additional project-relative paths or globs for future build-only files.
 For example `"exclude": ["private/", "settings/*.secrets.json"]`.
 
