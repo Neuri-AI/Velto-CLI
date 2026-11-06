@@ -25,7 +25,9 @@ from velto_cli.adapters.mobile.qt.android_final_apk import (
     replace_android_private_version,
 )
 from velto_cli.adapters.mobile.qt.android_sources import PACKAGES
-from velto_cli.adapters.mobile.qt.android_bytecode import compile_android_bytecode
+from velto_cli.adapters.mobile.qt.android_cython import (
+    compile_android_extensions, output_name,
+)
 from velto_cli.adapters.mobile.qt.android_build_config import (
     load_android_signing, verify_android_exclusions,
 )
@@ -55,9 +57,29 @@ def _prepare_bytecode_source(source: bytes, name: str) -> bytes:
     from psx.markup.transform import transform_source
     # precompiled=True also sets the decorator marker correctly after
     # __future__ imports, without depending on inspect at Android runtime.
-    return transform_source(
+    prepared = transform_source(
         source.decode("utf-8"), filename=name, precompiled=True,
-    ).source.encode("utf-8")
+    ).source
+    if name == "main.py":
+        # p4a requires an executable main.py loader. The protected extension
+        # imports as module "main", so preserve the application's original
+        # __main__ guard when its native extension is imported by the loader.
+        class EntryGuard(ast.NodeTransformer):
+            def visit_Compare(self, node):
+                self.generic_visit(node)
+                if (
+                    len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq)
+                    and isinstance(node.left, ast.Name)
+                    and node.left.id == "__name__"
+                    and len(node.comparators) == 1
+                    and isinstance(node.comparators[0], ast.Constant)
+                    and node.comparators[0].value == "__main__"
+                ):
+                    return ast.copy_location(ast.Constant(True), node)
+                return node
+        tree = ast.parse(prepared, filename=name)
+        prepared = ast.unparse(ast.fix_missing_locations(EntryGuard().visit(tree)))
+    return (prepared + "\n").encode("utf-8")
 
 
 def _compile_bytecode(source: bytes, name: str) -> bytes:
@@ -70,12 +92,10 @@ def _compile_bytecode(source: bytes, name: str) -> bytes:
 
 
 def _bootstrap() -> bytes:
-    # p4a executes main.py. It contains only this minimal entry point.
-    return (
-        b"from pathlib import Path\n"
-        b"import runpy\n"
-        b"runpy.run_path(str(Path(__file__).with_suffix('.pyc')), run_name='__main__')\n"
-    )
+    # The sole readable Python application entry required by p4a.
+    # importlib prefers the compiled main.so extension over this source when
+    # importing the same module name from the private application directory.
+    return b"import importlib\nimportlib.import_module('main')\n"
 
 
 def _release_credentials(root: Path | None = None) -> tuple[Path, str, str, str]:
@@ -111,32 +131,24 @@ def _private_entry(name: str) -> bool:
 
 def protect_android_apk(
     apk: Path, root: Path, *, debug: bool,
-    toolchain_root: Path | None = None,
+    toolchain_root: Path | None = None, obfuscate: bool = False,
 ) -> Path:
-    """Rewrite source files into same-version sourceless bytecode and re-sign.
+    """Cross-compile sources as Android ARM64 Cython extensions and re-sign.
 
-    The caller must supply a real release APK. Signatures and bytecode format
-    are verified before publishing; failures do not mutate the input artifact.
+    A real Android toolchain and target CPython headers are required. The
+    original signed APK is untouched until every module is compiled, stripped
+    when requested, and verified. No .pyc fallback exists.
     """
     if apk.suffix.lower() != ".apk" or (("debug" in apk.stem.lower()) != debug):
         raise RuntimeError(
             "Android source protection requires an APK matching the selected "
             "debug/release signing mode; AAB is not supported."
         )
-    # Android bytecode must match the embedded interpreter magic/version.
-    # Inspect the packaged CPython native library, not a guessed Qt version.
-    with ZipFile(apk) as target_apk:
-        embedded = {
-            (int(m.group(1)), int(m.group(2)))
-            for name in target_apk.namelist()
-            if (m := re.search(r"/libpython(\d+)\.(\d+)\.so$", name))
-        }
-    if len(embedded) != 1:
+    if toolchain_root is None:
         raise RuntimeError(
-            "Cannot determine one unambiguous CPython version from the Android "
-            f"APK libraries: {sorted(embedded)}"
+            "Cython Android protection requires a full deployment with retained "
+            "python-for-android headers and NDK. Incremental .pyc fallback disabled."
         )
-    target_version = next(iter(embedded))
     if debug:
         store, alias, store_password, key_password = (
             _debug_keystore(), "androiddebugkey", "android", "android"
@@ -171,18 +183,20 @@ def protect_android_apk(
                 if file is None:
                     raise RuntimeError(f"Cannot read Android release source: {name}")
                 payload = file.read()
-                target = temp / "compiled" / (name + "c")
+                target_name = output_name(name)
+                target = temp / "compiled" / target_name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 source_path = temp / "sources" / name
                 source_path.parent.mkdir(parents=True, exist_ok=True)
                 source_path.write_bytes(_prepare_bytecode_source(payload, name))
                 jobs.append((name, source_path, target))
-                compiled[name + "c"] = target
+                compiled[target_name] = target
                 protected.add(name)
         if "main.py" not in protected:
             raise RuntimeError("Android private archive is missing project main.py")
-        compile_android_bytecode(
-            jobs, target_version, toolchain_root=toolchain_root,
+        compile_android_extensions(
+            jobs, apk=apk, toolchain_root=toolchain_root,
+            obfuscate=obfuscate,
         )
         source_stub = temp / "main.py"
         source_stub.write_bytes(_bootstrap())
@@ -256,8 +270,8 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
                 m.name.removeprefix("./").strip("/")
                 for m in tar.getmembers() if m.isfile()
             }
-            if "main.pyc" not in items or "main.py" not in items:
-                raise RuntimeError("Protected release has no Python entry/bootstrap")
+            if "main.so" not in items or "main.py" not in items:
+                raise RuntimeError("Protected release lacks Cython main.so and bootstrap")
             exposed = sorted(
                 name for name in items
                 if name != "main.py" and name.endswith(".py") and _owned(name, root)
@@ -267,6 +281,13 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
                     "Protected release exposes application Python sources: "
                     + ", ".join(exposed[:12])
                 )
+            forbidden_pyc = sorted(
+                name for name in items if name.endswith((".pyc", ".pyo"))
+                and _owned(name.removesuffix("c"), root)
+            )
+            if forbidden_pyc:
+                raise RuntimeError("Protected APK contains .pyc application modules: "
+                                   + ", ".join(forbidden_pyc[:12]))
             bootstrap = tar.extractfile("main.py")
             if bootstrap is None or bootstrap.read() != _bootstrap():
                 raise RuntimeError("Protected release contains an unverified main.py")
