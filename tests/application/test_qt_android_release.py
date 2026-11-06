@@ -212,6 +212,10 @@ def test_bytecode_compiler_never_uses_mismatched_host(tmp_path, monkeypatch):
     from unittest.mock import Mock
     monkeypatch.delenv("VELTO_ANDROID_BYTECODE_PYTHON", raising=False)
     monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android_bytecode._resolve_managed_python",
+        lambda version, install: None,
+    )
+    monkeypatch.setattr(
         "velto_cli.adapters.mobile.qt.android_bytecode._candidate_interpreters",
         lambda version, toolchain_root: [sys.executable],
     )
@@ -279,3 +283,65 @@ def test_hostpython_fallback_recognizes_homebrew_python(tmp_path, monkeypatch):
         "/opt/homebrew/opt/python@3.14/bin/python3.14"
         in list(android_bytecode._candidate_interpreters((3, 14), None))
     )
+
+
+def test_managed_bytecode_python_uses_isolated_conda_prefix(tmp_path, monkeypatch):
+    from subprocess import CompletedProcess
+    from velto_cli.adapters.mobile.qt import android_bytecode as mod
+
+    prefix = tmp_path / "android-python" / "3.14"
+    interpreter = prefix / "bin" / "python3.14"
+    monkeypatch.setattr(mod, "_managed_python_root", lambda version: prefix)
+    monkeypatch.setenv("CONDA_EXE", "/fake/bin/conda")
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        interpreter.parent.mkdir(parents=True, exist_ok=True)
+        interpreter.write_bytes(b"test executable")
+        return CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(mod.subprocess, "run", run)
+    assert mod._resolve_managed_python((3, 14), install=True) == str(interpreter)
+    assert calls == [[
+        "/fake/bin/conda", "create", "--yes", "--quiet",
+        "--prefix", str(prefix), "python=3.14",
+    ]]
+
+
+def test_managed_bytecode_python_does_not_modify_existing_prefix(
+    tmp_path, monkeypatch,
+):
+    from velto_cli.adapters.mobile.qt import android_bytecode as mod
+    prefix = tmp_path / "cache" / "3.14"
+    interpreter = prefix / "bin/python3.14"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.write_bytes(b"cached")
+    monkeypatch.setattr(mod, "_managed_python_root", lambda version: prefix)
+
+    def forbidden_run(*args, **kwargs):
+        raise AssertionError("Conda must not run for already cached interpreter")
+    monkeypatch.setattr(mod.subprocess, "run", forbidden_run)
+    assert mod._resolve_managed_python((3, 14), install=True) == str(interpreter)
+
+
+def test_mismatched_python_without_conda_is_not_auto_installed(
+    tmp_path, monkeypatch,
+):
+    import sys
+    from velto_cli.adapters.mobile.qt import android_bytecode as mod
+
+    target = (3, 14) if sys.version_info[:2] != (3, 14) else (3, 12)
+    monkeypatch.delenv("CONDA_EXE", raising=False)
+    monkeypatch.setattr(mod.shutil, "which", lambda cmd: None)
+    monkeypatch.setattr(
+        mod, "_candidate_interpreters", lambda version, toolchain_root: [],
+    )
+    monkeypatch.setattr(
+        mod, "_managed_python_root",
+        lambda version: tmp_path / "isolated" / "missing",
+    )
+    # Avoid touching the real user's ~/miniconda3 while testing.
+    monkeypatch.setattr(mod.Path, "home", lambda: tmp_path)
+    with pytest.raises(RuntimeError, match="no matching native build interpreter"):
+        mod.find_android_bytecode_python(target)
