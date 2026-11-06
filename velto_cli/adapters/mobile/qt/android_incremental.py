@@ -166,6 +166,7 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
                 "android_incremental.py", "android_final_apk.py",
                 "android_sources.py", "android.py",
                 "android_svg.py", "android_build_inputs.py",
+                "android_build_config.py",
             )
         },
         "format": _FORMAT,
