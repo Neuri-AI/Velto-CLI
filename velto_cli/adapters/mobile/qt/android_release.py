@@ -10,8 +10,8 @@ import hashlib
 import importlib._bootstrap_external as _bootstrap_external
 import io
 import os
-from pathlib import Path, PurePosixPath
 import re
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import sys
@@ -43,7 +43,7 @@ def _owned(name: str, root: Path) -> bool:
 
 
 def _compile_bytecode(source: bytes, name: str) -> bytes:
-    code = compile(source, name, "exec", optimize=2, dont_inherit=True)
+    # Transform literal PSX at build time, matching Velto desktop freeze.\n    # This is necessary because Android must not depend on reading .py files\n    # to compile @component bodies at runtime.\n    if not name.startswith(PACKAGES) and b"psx(" in source:\n        from psx.markup.transform import transform_source\n        source = transform_source(source.decode("utf-8"), filename=name).source.encode("utf-8")\n    code = compile(source, name, "exec", optimize=2, dont_inherit=True)
     # Sourceless imports recognize module.pyc and package/__init__.pyc.
     return _bootstrap_external._code_to_timestamp_pyc(
         code, mtime=0, source_size=len(source)
@@ -90,13 +90,7 @@ def protect_android_release_apk(apk: Path, root: Path) -> Path:
         raise RuntimeError(
             "Protected Android release requires a release APK, not a debug APK/AAB."
         )
-    if sys.version_info[:2] != (3, 12):
-        # Target Python must be proven, not assumed. Current Qt/p4a profile
-        # is certified against CPython 3.12 only.
-        raise RuntimeError(
-            "Protected Android release bytecode is currently certified for "
-            "Python 3.12 builds only; refusing cross-version bytecode."
-        )
+    # Android bytecode must match the embedded interpreter magic/version.\n    # Inspect the packaged CPython native library, not a guessed Qt version.\n    with ZipFile(apk) as target_apk:\n        embedded = {\n            (int(m.group(1)), int(m.group(2)))\n            for name in target_apk.namelist()\n            if (m := re.search(r"/libpython(\\d+)\\.(\\d+)\\.so$", name))\n        }\n    if embedded != {sys.version_info[:2]}:\n        raise RuntimeError(\n            "Cannot safely use host Python bytecode for Android target: "\n            f"host={sys.version_info[:2]}, APK interpreter(s)={sorted(embedded)}. "\n            "Release requires a matching Python interpreter."\n        )
     store, alias, store_password, key_password = _release_credentials()
     with ZipFile(apk) as archive:
         names = [name for name in archive.namelist() if _private_entry(name)]
