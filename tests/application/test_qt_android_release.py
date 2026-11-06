@@ -184,3 +184,67 @@ def test_protected_debug_reuses_incremental_build(tmp_path, monkeypatch):
     assert artifact.path == result
     protected.assert_called_once_with(result, tmp_path, debug=True)
     runner.run.assert_not_called()
+
+
+def test_android_bytecode_compiler_uses_current_interpreter_when_versions_match(
+    tmp_path,
+):
+    import sys
+    from velto_cli.adapters.mobile.qt.android_bytecode import (
+        compile_android_bytecode,
+    )
+    prepared = tmp_path / "test.py"
+    compiled = tmp_path / "test.pyc"
+    prepared.write_text("NUMBER = 42\n")
+    compile_android_bytecode(
+        [("components/test.py", prepared, compiled)], sys.version_info[:2],
+    )
+    assert compiled.read_bytes()[:4] == __import__(
+        "importlib.util", fromlist=["MAGIC_NUMBER"]
+    ).MAGIC_NUMBER
+
+
+def test_bytecode_compiler_never_uses_mismatched_host(tmp_path, monkeypatch):
+    import sys
+    from velto_cli.adapters.mobile.qt.android_bytecode import (
+        find_android_bytecode_python,
+    )
+    from unittest.mock import Mock
+    monkeypatch.delenv("VELTO_ANDROID_BYTECODE_PYTHON", raising=False)
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android_bytecode._candidate_interpreters",
+        lambda version, toolchain_root: [sys.executable],
+    )
+    target = (3, 14) if sys.version_info[:2] != (3, 14) else (3, 12)
+    with pytest.raises(RuntimeError, match="no matching native build interpreter"):
+        find_android_bytecode_python(target)
+
+
+def test_bytecode_compiler_accepts_verified_matching_build_interpreter(
+    tmp_path, monkeypatch,
+):
+    import sys
+    from velto_cli.adapters.mobile.qt.android_bytecode import (
+        find_android_bytecode_python,
+    )
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android_bytecode._candidate_interpreters",
+        lambda version, toolchain_root: ["/not/a/python", sys.executable],
+    )
+    assert find_android_bytecode_python(sys.version_info[:2]) == sys.executable
+
+
+def test_protected_psx_preparation_sets_component_marker():
+    from velto_cli.adapters.mobile.qt.android_release import (
+        _prepare_bytecode_source,
+    )
+    import ast
+    source = (
+        b"from __future__ import annotations\n"
+        b"from velto.ui import psx\n"
+        b"def render(): return psx('<p>Hello</p>')\n"
+    )
+    compiled_source = _prepare_bytecode_source(source, "components/test.py")
+    ast.parse(compiled_source)
+    assert b"__psx_build_precompiled__" in compiled_source
+    assert b"__future__" in compiled_source
