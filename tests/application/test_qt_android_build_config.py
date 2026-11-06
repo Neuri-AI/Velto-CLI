@@ -23,7 +23,7 @@ def test_android_settings_are_not_runtime_assets(tmp_path):
     settings.mkdir()
     (settings / "base.json").write_text('{"framework": "pyside6"}')
     (settings / "android.json").write_text(
-        '{"protect_source": true, "signing": {"keystore_password": "NEVER-SHIP"}}'
+        '{"protect_source": true}'
     )
     assets = _project_runtime_assets(tmp_path)
     assert "settings/base.json" in assets
@@ -114,7 +114,7 @@ def test_release_credentials_read_android_json(tmp_path):
     store = tmp_path / "release.jks"
     store.write_bytes(b"keystore")
     (settings / "android.json").write_text(
-        '{"signing": {"keystore": "release.jks", "alias": "release", '
+        '{"android": {"keystore": "release.jks", "alias": "release", '
         '"keystore_password": "store-pass", "key_password": "key-pass"}}'
     )
     assert _release_credentials(tmp_path) == (
@@ -129,7 +129,7 @@ def test_release_credentials_env_override_json(tmp_path, monkeypatch):
     store = tmp_path / "ci.jks"
     store.write_bytes(b"ci")
     (settings / "android.json").write_text(
-        '{"signing": {"keystore": "missing.jks", "alias": "old", '
+        '{"android": {"keystore": "missing.jks", "alias": "old", '
         '"keystore_password": "old", "key_password": "old"}}'
     )
     monkeypatch.setenv("VELTO_ANDROID_KEYSTORE", str(store))
@@ -144,8 +144,8 @@ def test_release_credentials_env_override_json(tmp_path, monkeypatch):
 def test_project_relative_signing_keystore_is_always_excluded(tmp_path):
     settings = tmp_path / "settings"
     settings.mkdir()
-    (settings / "android.json").write_text(
-        '{"signing": {"keystore": "keys/private-release.bin"}}'
+    (settings / "sign.json").write_text(
+        '{"android": {"keystore": "keys/private-release.bin"}}'
     )
     (tmp_path / "keys").mkdir()
     store = tmp_path / "keys/private-release.bin"
@@ -175,3 +175,38 @@ def test_init_spec_does_not_require_release_protection(tmp_path):
         target=MobileTarget.ANDROID, project_root=tmp_path, init_only=True,
     )
     assert builder.freeze.call_args.args[0].protect_source is False
+
+
+def test_sign_json_is_never_bundled_and_windows_mac_preserved(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_build_config import load_android_signing
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    content = {
+        "windows": {"certificate": "sign/windows/certificate.pfx"},
+        "mac": {"identity": "Developer ID Application"},
+        "android": {"keystore": "sign/android/release.jks", "alias": "release"},
+    }
+    import json
+    (settings / "sign.json").write_text(json.dumps(content))
+    assert load_android_signing(tmp_path) == content["android"]
+    assert "settings/sign.json" not in _project_runtime_assets(tmp_path)
+    assert is_android_excluded("settings/sign.json", android_exclusion_patterns(tmp_path))
+    with isolate_android_excluded_sources(tmp_path):
+        assert not (settings / "sign.json").exists()
+    assert json.loads((settings / "sign.json").read_text()) == content
+
+
+def test_sign_json_legacy_sign_wrapper(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_build_config import load_android_signing
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "sign.json").write_text('{"sign": {"android": {"alias": "old"}}}')
+    assert load_android_signing(tmp_path) == {"alias": "old"}
+
+
+def test_android_json_does_not_accept_signing_secrets(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "android.json").write_text('{"signing": {"alias": "release"}}')
+    with pytest.raises(ValueError, match="settings/sign.json"):
+        load_android_build_config(tmp_path)
