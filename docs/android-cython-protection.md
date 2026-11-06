@@ -40,3 +40,22 @@ velto build --target android
 - A matching Android Python development header tree, libpython.so, and NDK cross compiler must be available. Missing tools and failed native compilation stop the build.
 - Selective obfuscation here means removal of docstrings and unneeded native symbols. It is not cryptographic protection.
 - The Android device smoke test and PSX UI parity certification are still pending; static ELF and APK verification alone cannot certify execution.
+
+## Troubleshooting: missing target CPython headers
+
+Cython requires the **Android-target** `Python.h` and `pyconfig.h`, not
+headers from macOS/Conda. The p4a Python3Recipe normally places them in
+`android-build/android-root/include/python3.14/` inside its Python recipe
+build tree. Qt may reuse a pre-built distribution without retaining those
+intermediate files. Velto checks both the disposable stage and global p4a
+build roots. An existing APK alone cannot regenerate target-specific
+`pyconfig.h` safely.
+
+If Qt/p4a removed the recipe build files, rebuild the p4a Python recipe
+with retained build artifacts or point
+`VELTO_ANDROID_P4A_BUILD_ROOT` at an existing preserved p4a build root.
+Alternatively, `VELTO_ANDROID_PYTHON_INCLUDE` may point directly at the
+matching Android target include directory (containing both headers).
+Do **not** point it at the host's Python or Conda include directory.
+Velto refuses to produce an APK with incorrect ABI headers and never falls
+back to .pyc.
