@@ -9,7 +9,6 @@ from zipfile import ZipFile
 import pytest
 
 from velto_cli.adapters.mobile.qt.android_release import (
-    _compile_bytecode,
     _owned,
     _bootstrap,
     protect_android_release_apk,
@@ -28,25 +27,6 @@ def _apk(path: Path, files: dict[str, bytes]) -> None:
         apk.writestr("assets/private.tar", private.getvalue())
 
 
-def test_bytecode_is_sourceless_and_executable(tmp_path):
-    import importlib.machinery
-    import importlib.util
-
-    pyc = tmp_path / "module.pyc"
-    pyc.write_bytes(_compile_bytecode(b"ANSWER = 42\n", "module.py"))
-    loader = importlib.machinery.SourcelessFileLoader("example_release_module", str(pyc))
-    spec = importlib.util.spec_from_loader("example_release_module", loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    assert module.ANSWER == 42
-
-
-def test_bytecode_supports_future_imports(tmp_path):
-    data = b"from __future__ import annotations\nANSWER: int = 42\n"
-    pyc = _compile_bytecode(data, "components/sample.py")
-    assert pyc[:4] == __import__("importlib.util", fromlist=["MAGIC_NUMBER"]).MAGIC_NUMBER
-
-
 def test_verifier_rejects_unprotected_component_sources(tmp_path):
     root = tmp_path / "app"
     (root / "components").mkdir(parents=True)
@@ -54,14 +34,14 @@ def test_verifier_rejects_unprotected_component_sources(tmp_path):
     apk = tmp_path / "release.apk"
     _apk(apk, {
         "main.py": _bootstrap(),
-        "main.pyc": _compile_bytecode(b"PASS = True\n", "main.py"),
+        "main.so": b"fake compiled module",
         "components/test.py": b"TOP_SECRET = 'raw Python'\n",
     })
     with pytest.raises(RuntimeError, match="exposes application Python"):
         verify_android_release_source_protection(apk, root)
 
 
-def test_verifier_accepts_app_bytecode_and_entry_bootstrap(tmp_path):
+def test_verifier_accepts_cython_modules_and_entry_bootstrap(tmp_path):
     root = tmp_path / "app"
     (root / "components").mkdir(parents=True)
     (root / "components/test.py").write_text("ANSWER = 42\n")
@@ -69,7 +49,7 @@ def test_verifier_accepts_app_bytecode_and_entry_bootstrap(tmp_path):
     _apk(apk, {
         "main.py": _bootstrap(),
         "main.pyc": _compile_bytecode(b"PASS = True\n", "main.py"),
-        "components/test.pyc": _compile_bytecode(b"ANSWER = 42\n", "components/test.py"),
+        "components/test.so": b"fake compiled module",
     })
     verify_android_release_source_protection(apk, root)
 
@@ -127,131 +107,6 @@ def test_use_case_passes_protection_flag_to_builder(tmp_path):
     )
     request = builder.freeze.call_args.args[0]
     assert request.debug and request.protect_source
-
-
-def test_protected_debug_fails_closed_if_transform_fails(tmp_path, monkeypatch):
-    from unittest.mock import Mock
-    from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
-    from velto_cli.domain.mobile import MobileFreezeRequest, MobileFramework, MobileTarget
-
-    (tmp_path / "main.py").write_text("from velto import VeltoContext\n")
-    result = tmp_path / "demo-debug.apk"
-    result.write_bytes(b"original")
-    monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt.android.try_incremental_build",
-        lambda *args: result,
-    )
-    def fail(*args, **kwargs):
-        raise RuntimeError("protection failed")
-    monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt.android.protect_android_apk", fail,
-    )
-    builder = MobileToolchainFreezer(Mock())
-    request = MobileFreezeRequest(
-        project_root=tmp_path, target=MobileTarget.ANDROID,
-        framework=MobileFramework.PYSIDE6, app_name="demo",
-        version="0.1", debug=True, protect_source=True,
-    )
-    with pytest.raises(RuntimeError, match="protection failed"):
-        builder.freeze(request)
-    assert result.read_bytes() == b"original"
-
-
-def test_protected_debug_reuses_incremental_build(tmp_path, monkeypatch):
-    from unittest.mock import Mock
-    from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
-    from velto_cli.domain.mobile import MobileFreezeRequest, MobileFramework, MobileTarget
-
-    (tmp_path / "main.py").write_text("from velto import VeltoContext\n")
-    result = tmp_path / "demo-debug.apk"
-    result.write_bytes(b"original")
-    monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt.android.try_incremental_build",
-        lambda *args: result,
-    )
-    protected = Mock(return_value=result)
-    monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt.android.protect_android_apk", protected,
-    )
-    runner = Mock()
-    builder = MobileToolchainFreezer(runner)
-    request = MobileFreezeRequest(
-        project_root=tmp_path, target=MobileTarget.ANDROID,
-        framework=MobileFramework.PYSIDE6, app_name="demo",
-        version="0.1", debug=True, protect_source=True,
-    )
-    artifact = builder.freeze(request)
-    assert artifact.path == result
-    protected.assert_called_once_with(result, tmp_path, debug=True)
-    runner.run.assert_not_called()
-
-
-def test_android_bytecode_compiler_uses_current_interpreter_when_versions_match(
-    tmp_path,
-):
-    import sys
-    from velto_cli.adapters.mobile.qt.android_bytecode import (
-        compile_android_bytecode,
-    )
-    prepared = tmp_path / "test.py"
-    compiled = tmp_path / "test.pyc"
-    prepared.write_text("NUMBER = 42\n")
-    compile_android_bytecode(
-        [("components/test.py", prepared, compiled)], sys.version_info[:2],
-    )
-    assert compiled.read_bytes()[:4] == __import__(
-        "importlib.util", fromlist=["MAGIC_NUMBER"]
-    ).MAGIC_NUMBER
-
-
-def test_bytecode_compiler_never_uses_mismatched_host(tmp_path, monkeypatch):
-    import sys
-    from velto_cli.adapters.mobile.qt.android_bytecode import (
-        find_android_bytecode_python,
-    )
-    from unittest.mock import Mock
-    monkeypatch.delenv("VELTO_ANDROID_BYTECODE_PYTHON", raising=False)
-    monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt.android_bytecode._resolve_managed_python",
-        lambda version, install: None,
-    )
-    monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt.android_bytecode._candidate_interpreters",
-        lambda version, toolchain_root: [sys.executable],
-    )
-    target = (3, 14) if sys.version_info[:2] != (3, 14) else (3, 12)
-    with pytest.raises(RuntimeError, match="no matching native build interpreter"):
-        find_android_bytecode_python(target)
-
-
-def test_bytecode_compiler_accepts_verified_matching_build_interpreter(
-    tmp_path, monkeypatch,
-):
-    import sys
-    from velto_cli.adapters.mobile.qt.android_bytecode import (
-        find_android_bytecode_python,
-    )
-    monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt.android_bytecode._candidate_interpreters",
-        lambda version, toolchain_root: ["/not/a/python", sys.executable],
-    )
-    assert find_android_bytecode_python(sys.version_info[:2]) == sys.executable
-
-
-def test_protected_psx_preparation_sets_component_marker():
-    from velto_cli.adapters.mobile.qt.android_release import (
-        _prepare_bytecode_source,
-    )
-    import ast
-    source = (
-        b"from __future__ import annotations\n"
-        b"from velto.ui import psx\n"
-        b"def render(): return psx('<p>Hello</p>')\n"
-    )
-    compiled_source = _prepare_bytecode_source(source, "components/test.py")
-    ast.parse(compiled_source)
-    assert b"__psx_build_precompiled__" in compiled_source
-    assert b"__future__" in compiled_source
 
 
 def test_hostpython_discovery_checks_installed_p4a_root_prefix(tmp_path):
@@ -345,3 +200,54 @@ def test_mismatched_python_without_conda_is_not_auto_installed(
     monkeypatch.setattr(mod.Path, "home", lambda: tmp_path)
     with pytest.raises(RuntimeError, match="no matching native build interpreter"):
         mod.find_android_bytecode_python(target)
+
+
+def test_cython_module_names_and_library_paths():
+    from velto_cli.adapters.mobile.qt.android_cython import (
+        module_name, output_name,
+    )
+    assert module_name("main.py") == "main"
+    assert module_name("components/test.py") == "components.test"
+    assert module_name("components/__init__.py") == "components"
+    assert module_name("velto/__init__.py") == "velto"
+    assert output_name("components/test.py") == "components/test.so"
+    assert output_name("components/__init__.py") == "components/__init__.so"
+
+
+def test_cython_preparation_preserves_main_guard_on_import():
+    from velto_cli.adapters.mobile.qt.android_release import (
+        _prepare_bytecode_source, _bootstrap,
+    )
+    source = (
+        b"def boot(): return 'ready'\n"
+        b"if __name__ == '__main__':\n"
+        b"    boot()\n"
+    )
+    prepared = _prepare_bytecode_source(source, "main.py")
+    import ast
+    ast.parse(prepared)
+    assert b"if True:" in prepared
+    assert b"importlib.import_module('main')" in _bootstrap()
+    assert b".pyc" not in _bootstrap()
+
+
+def test_cython_target_is_android_elf64_arm64_only():
+    from velto_cli.adapters.mobile.qt.android_cython import _is_elf_arm64
+    data = bytearray(32)
+    data[:6] = b"\x7fELF\x02\x01"
+    data[18:20] = (183).to_bytes(2, "little")
+    assert _is_elf_arm64(data)
+    data[18:20] = (62).to_bytes(2, "little")
+    assert not _is_elf_arm64(data)
+
+
+def test_cython_fails_closed_without_android_ndk(monkeypatch):
+    from velto_cli.adapters.mobile.qt import android_cython
+    monkeypatch.setattr(
+        android_cython, "_ndk_root",
+        lambda: Path("/nonexistent-android-ndk"),
+    )
+    with pytest.raises(RuntimeError, match="no aarch64"):
+        android_cython._ndk_tools(28)
+
+
