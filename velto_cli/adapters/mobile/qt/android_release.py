@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import importlib._bootstrap_external as _bootstrap_external
 import io
 import os
 import re
 from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 from zipfile import ZipFile
@@ -50,7 +48,7 @@ def _owned(name: str, root: Path) -> bool:
     )
 
 
-def _prepare_bytecode_source(source: bytes, name: str) -> bytes:
+def _prepare_cython_source(source: bytes, name: str) -> bytes:
     """Precompile project PSX on the build host; leave framework imports alone."""
     if name.startswith(tuple(package + "/" for package in PACKAGES)):
         return source
@@ -80,15 +78,6 @@ def _prepare_bytecode_source(source: bytes, name: str) -> bytes:
         tree = ast.parse(prepared, filename=name)
         prepared = ast.unparse(ast.fix_missing_locations(EntryGuard().visit(tree)))
     return (prepared + "\n").encode("utf-8")
-
-
-def _compile_bytecode(source: bytes, name: str) -> bytes:
-    """Local-only bytecode helper for tests; Android uses target interpreter."""
-    prepared = _prepare_bytecode_source(source, name)
-    code = compile(prepared, name, "exec", optimize=2, dont_inherit=True)
-    return _bootstrap_external._code_to_timestamp_pyc(
-        code, mtime=0, source_size=len(prepared)
-    )
 
 
 def _bootstrap() -> bytes:
@@ -188,7 +177,7 @@ def protect_android_apk(
                 target.parent.mkdir(parents=True, exist_ok=True)
                 source_path = temp / "sources" / name
                 source_path.parent.mkdir(parents=True, exist_ok=True)
-                source_path.write_bytes(_prepare_bytecode_source(payload, name))
+                source_path.write_bytes(_prepare_cython_source(payload, name))
                 jobs.append((name, source_path, target))
                 compiled[target_name] = target
                 protected.add(name)
@@ -283,7 +272,7 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
                 )
             forbidden_pyc = sorted(
                 name for name in items if name.endswith((".pyc", ".pyo"))
-                and _owned(name.removesuffix("c"), root)
+                and (_owned(name[:-1], root) or name == "main.pyc")
             )
             if forbidden_pyc:
                 raise RuntimeError("Protected APK contains .pyc application modules: "
@@ -295,8 +284,10 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
 
 def protect_android_release_apk(
     apk: Path, root: Path, *, toolchain_root: Path | None = None,
+    obfuscate: bool = False,
 ) -> Path:
     """Backward-compatible release entry point; never uses a debug key."""
     return protect_android_apk(
         apk, root, debug=False, toolchain_root=toolchain_root,
+        obfuscate=obfuscate,
     )
