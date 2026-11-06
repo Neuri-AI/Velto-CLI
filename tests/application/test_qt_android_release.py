@@ -106,3 +106,81 @@ def test_owned_paths_excludes_p4a_stdlib_and_tools(tmp_path):
     assert not _owned("python3.12/site.py", root)
     assert not _owned("deployment/tool.py", root)
     assert not _owned("site-packages/random.py", root)
+
+
+def test_use_case_passes_protection_flag_to_builder(tmp_path):
+    from unittest.mock import Mock
+    from velto_cli.application.use_cases.freeze_mobile import FreezeMobileUseCase
+    from velto_cli.domain.mobile import MobileTarget
+
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n")
+    (tmp_path / "main.py").write_text("from velto import VeltoContext\n")
+    settings = Mock()
+    settings.get_optional.side_effect = lambda name, fallback=None: {
+        "framework": "pyside6", "entry_point": "main.py",
+    }.get(name, fallback)
+    builder = Mock()
+    builder.freeze.return_value = None
+    FreezeMobileUseCase(builder, settings, Mock()).execute(
+        target=MobileTarget.ANDROID, project_root=tmp_path,
+        debug=True, protect_source=True,
+    )
+    request = builder.freeze.call_args.args[0]
+    assert request.debug and request.protect_source
+
+
+def test_protected_debug_fails_closed_if_transform_fails(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
+    from velto_cli.domain.mobile import MobileFreezeRequest, MobileFramework, MobileTarget
+
+    (tmp_path / "main.py").write_text("from velto import VeltoContext\n")
+    result = tmp_path / "demo-debug.apk"
+    result.write_bytes(b"original")
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.try_incremental_build",
+        lambda *args: result,
+    )
+    def fail(*args, **kwargs):
+        raise RuntimeError("protection failed")
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.protect_android_apk", fail,
+    )
+    builder = MobileToolchainFreezer(Mock())
+    request = MobileFreezeRequest(
+        project_root=tmp_path, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="demo",
+        version="0.1", debug=True, protect_source=True,
+    )
+    with pytest.raises(RuntimeError, match="protection failed"):
+        builder.freeze(request)
+    assert result.read_bytes() == b"original"
+
+
+def test_protected_debug_reuses_incremental_build(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from velto_cli.adapters.mobile.freezer import MobileToolchainFreezer
+    from velto_cli.domain.mobile import MobileFreezeRequest, MobileFramework, MobileTarget
+
+    (tmp_path / "main.py").write_text("from velto import VeltoContext\n")
+    result = tmp_path / "demo-debug.apk"
+    result.write_bytes(b"original")
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.try_incremental_build",
+        lambda *args: result,
+    )
+    protected = Mock(return_value=result)
+    monkeypatch.setattr(
+        "velto_cli.adapters.mobile.qt.android.protect_android_apk", protected,
+    )
+    runner = Mock()
+    builder = MobileToolchainFreezer(runner)
+    request = MobileFreezeRequest(
+        project_root=tmp_path, target=MobileTarget.ANDROID,
+        framework=MobileFramework.PYSIDE6, app_name="demo",
+        version="0.1", debug=True, protect_source=True,
+    )
+    artifact = builder.freeze(request)
+    assert artifact.path == result
+    protected.assert_called_once_with(result, tmp_path, debug=True)
+    runner.run.assert_not_called()
