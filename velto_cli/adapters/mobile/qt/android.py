@@ -16,7 +16,7 @@ from velto_cli.adapters.mobile.qt.android_build_inputs import (
     isolate_previous_android_build_outputs, staged_android_project,
 )
 from velto_cli.adapters.mobile.qt.android_build_config import (
-    verify_android_exclusions,
+    verify_android_exclusions, load_android_build_config,
 )
 from velto_cli.adapters.mobile.qt.android_incremental import (
     try_incremental_build, record_full_build,
@@ -487,7 +487,7 @@ class QtAndroidBuilder:
         # The incremental cache is an opt-out implementation detail of debug
         # builds, never an alternate public API. It runs BEFORE transient
         # framework packages are staged into the project tree.
-        if enabled and request.debug and not request.clean:
+        if enabled and request.debug and not request.clean and not request.protect_source:
             try:
                 quick = try_incremental_build(request.project_root, request)
             except Exception as exc:
@@ -529,8 +529,8 @@ class QtAndroidBuilder:
             # Verify the stage against ORIGINAL host-only exclusions, not
             # against the filtered stage's absent android.json/sign.json.
             verify_android_exclusions(built.path, request.project_root)
-            if enabled and request.debug:
-                # Cache the unprotected base before source minimization.
+            if enabled and request.debug and not request.protect_source:
+                # Cache is only used for explicitly unprotected builds.
                 try:
                     record_full_build(request.project_root, built.path, request)
                 except (OSError, RuntimeError, ValueError) as exc:
@@ -539,16 +539,22 @@ class QtAndroidBuilder:
                 protect_android_apk(
                     built.path, request.project_root, debug=True,
                     toolchain_root=stage,
+                    obfuscate=load_android_build_config(
+                        request.project_root
+                    ).get("obfuscate", False),
                 )
-                self._notice("Protected Android debug APK signed and verified.")
+                self._notice("Cython Android debug extensions signed and verified.")
             elif enabled and not request.debug:
                 protect_android_release_apk(
                     built.path, request.project_root, toolchain_root=stage,
+                    obfuscate=load_android_build_config(
+                        request.project_root
+                    ).get("obfuscate", False),
                 )
                 verify_android_release_source_protection(
                     built.path, request.project_root
                 )
-                self._notice("Protected Android release bytecode verified and APK signed.")
+                self._notice("Cython Android release extensions verified and APK signed.")
             verify_android_exclusions(built.path, request.project_root)
             output = request.project_root / "build" / "android" / "qt" / built.path.name
             output.parent.mkdir(parents=True, exist_ok=True)
