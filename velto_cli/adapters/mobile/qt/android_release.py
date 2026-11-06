@@ -25,6 +25,9 @@ from velto_cli.adapters.mobile.qt.android_final_apk import (
     replace_android_private_version,
 )
 from velto_cli.adapters.mobile.qt.android_sources import PACKAGES
+from velto_cli.adapters.mobile.qt.android_build_config import (
+    load_android_build_config, verify_android_exclusions,
+)
 
 
 def _owned(name: str, root: Path) -> bool:
@@ -88,21 +91,36 @@ def _bootstrap() -> bytes:
     )
 
 
-def _release_credentials() -> tuple[Path, str, str, str]:
-    required = (
-        "VELTO_ANDROID_KEYSTORE", "VELTO_ANDROID_KEY_ALIAS",
-        "VELTO_ANDROID_KEYSTORE_PASSWORD", "VELTO_ANDROID_KEY_PASSWORD",
-    )
-    missing = [name for name in required if not os.environ.get(name)]
-    if missing:
+def _release_credentials(root: Path | None = None) -> tuple[Path, str, str, str]:
+    """Resolve signing inputs without exposing them to the Android build.
+
+    Environment variables override settings/android.json so CI may avoid
+    storing secrets on disk. Relative keystore paths are project-relative.
+    """
+    config = load_android_build_config(root) if root is not None else {}
+    signing = config.get("signing", {})
+    def value(env: str, field: str) -> str:
+        provided = os.environ.get(env) or signing.get(field, "")
+        if not isinstance(provided, str):
+            raise ValueError(f"Android signing {field} must be a string")
+        return provided
+    store_value = value("VELTO_ANDROID_KEYSTORE", "keystore")
+    alias = value("VELTO_ANDROID_KEY_ALIAS", "alias")
+    store_password = value("VELTO_ANDROID_KEYSTORE_PASSWORD", "keystore_password")
+    key_password = value("VELTO_ANDROID_KEY_PASSWORD", "key_password")
+    if not all((store_value, alias, store_password, key_password)):
         raise RuntimeError(
-            "Protected Android release requires signing configuration: "
-            + ", ".join(missing)
+            "Android Release signing requires signing.keystore, signing.alias, "
+            "signing.keystore_password and signing.key_password in "
+            "settings/android.json or equivalent VELTO_ANDROID_* environment variables"
         )
-    store = Path(os.environ[required[0]]).expanduser().resolve()
+    store = Path(store_value).expanduser()
+    if not store.is_absolute():
+        store = (root if root is not None else Path.cwd()) / store
+    store = store.resolve()
     if not store.is_file():
-        raise RuntimeError(f"Android release keystore does not exist: {store}")
-    return (store, *(os.environ[name] for name in required[1:]))
+        raise RuntimeError(f"Android Release keystore not found: {store}")
+    return store, alias, store_password, key_password
 
 
 def _private_entry(name: str) -> bool:
@@ -139,7 +157,7 @@ def protect_android_apk(apk: Path, root: Path, *, debug: bool) -> Path:
             _debug_keystore(), "androiddebugkey", "android", "android"
         )
     else:
-        store, alias, store_password, key_password = _release_credentials()
+        store, alias, store_password, key_password = _release_credentials(root)
     with ZipFile(apk) as archive:
         names = [name for name in archive.namelist() if _private_entry(name)]
         if len(names) != 1 or "resources.arsc" not in archive.namelist():
@@ -225,6 +243,7 @@ def protect_android_apk(apk: Path, root: Path, *, debug: bool) -> Path:
             check=True, capture_output=True, text=True,
         )
         verify_android_release_source_protection(signed, root)
+        verify_android_exclusions(signed, root)
         destination = apk.with_name(apk.name + ".velto-protected")
         try:
             shutil.copy2(signed, destination)
