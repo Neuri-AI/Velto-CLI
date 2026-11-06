@@ -36,6 +36,14 @@ def load_android_build_config(root: Path) -> dict:
         raise ValueError(f"{ANDROID_CONFIG} must be a JSON object")
     if "protect_source" in value and type(value["protect_source"]) is not bool:
         raise ValueError("android.json protect_source must be boolean")
+    backend = value.get("protection_backend", "cython")
+    if backend != "cython":
+        raise ValueError(
+            "Android protection_backend must be 'cython'; .pyc and Nuitka "
+            "are not enabled for protected Android builds."
+        )
+    if "obfuscate" in value and type(value["obfuscate"]) is not bool:
+        raise ValueError("android.json obfuscate must be boolean")
     if "signing" in value:
         raise ValueError(
             "Android signing belongs in settings/sign.json under the android key, "
