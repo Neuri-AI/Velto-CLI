@@ -88,3 +88,15 @@ signed APK's `lib/arm64-v8a/` directory, rather than retaining it under
 `build/outputs/apk/**/*.apk` ZIP library entries and the Python private
 archive when distribution metadata is absent; it does not insist on
 intermediate library copies being present.
+
+## Recovering Qt p4a dist from the completed APK
+
+PySide6 sometimes removes `dist_info.json` and intermediate copies of
+native libraries inside the p4a distribution. The initial recovery logic
+incorrectly required these files. Velto now takes the APK it has **already
+built and checked** as the source of truth: it checks for Android ARM64
+`libpython*.so`, a Qt6 native library, and p4a's private application archive
+in the APK ZIP. The matching p4a stage distribution is then selected by the
+project directory name or, only when unambiguous, the unique distribution.
+The recovery command remains a separate `p4a create`, never an APK build
+with a globally injected `--force-build` option.
