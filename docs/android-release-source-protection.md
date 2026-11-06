@@ -1,66 +1,72 @@
-# Android release source minimization (PySide6)
+# Android signing, source protection and build-only exclusions
 
-Velto's ordinary **debug** workflow retains Python source and supports incremental APK
-re-signing. Use `velto build --target android --debug` for development.
+Velto reads **settings/android.json** from the developer's project, not from
+the APK. This file is host-only and is removed from the PySide6/Buildozer
+source tree during deployment, then restored.
 
-To test bytecode-only packaging on a device without any release signing key:
+Example:
 
-```shell
-velto build --target android --debug --protect-source
+```json
+{
+  "protect_source": true,
+  "signing": {
+    "keystore": "/absolute/path/to/release.jks",
+    "alias": "velto-release",
+    "keystore_password": "your-keystore-password",
+    "key_password": "your-key-password"
+  },
+  "exclude": []
+}
 ```
 
-The protected debug artifact uses Android's automatic **debug keystore**,
-not a release key. The incremental cache keeps an unprotected base APK and
-re-signs only the published protected output. Do **not** distribute the debug
-key as a production identity. A debug APK is still signed: Android does not
-install unsigned APKs.
+The signing section is used for **Release**, not for Debug. For Debug,
+Android's automatic debug signing key is used. Environment variables
+`VELTO_ANDROID_KEYSTORE`, `VELTO_ANDROID_KEY_ALIAS`,
+`VELTO_ANDROID_KEYSTORE_PASSWORD`, and `VELTO_ANDROID_KEY_PASSWORD` still
+work and take precedence over JSON values (useful for CI secrets).
 
-A **non-debug** PySide6 Android build is fail-closed: Velto refuses to publish
-an APK/AAB when it cannot verify a source-minimized Android release.
+**Important:** the JSON file is not encrypted. Excluding it from the APK
+does not protect it on your computer, in Git, or in uploaded source archives.
+Do not commit real passwords. Put `settings/android.json` in `.gitignore`
+and keep an `android.example.json` with empty placeholders when needed.
+Use CI secrets through environment variables for published releases.
 
-## Release workflow
+## Commands
 
-Before running `velto build --target android`, configure your own Android
-release signing key via the following environment variables:
+```shell
+velto build --target android --debug          # fast debug, protection follows android.json
+velto build --target android --debug --clean  # force full rebuild, no incremental APK reuse
+velto build --target android                  # release: source-minimized + release signing
+```
 
-- `VELTO_ANDROID_KEYSTORE`: path to an existing release keystore.
-- `VELTO_ANDROID_KEY_ALIAS`: key alias.
-- `VELTO_ANDROID_KEYSTORE_PASSWORD`: keystore password.
-- `VELTO_ANDROID_KEY_PASSWORD`: private key password.
+`--clean` is the existing long-form flag, not a positional `clean` argument.
 
-Do not store passwords in project files or commit them to Git. Supply them from
-a secure CI secret store when building in automation.
+For compatibility, `--protect-source` remains available as an explicit
+override. A Debug build protects source when `protect_source` in android.json
+is `true`. Release builds always require source protection.
 
-The current source-minimization implementation supports **release APKs only**.
-It does not convert a debug APK into a release artifact and does not silently
-claim to protect an AAB; those paths fail with explicit diagnostics.
+## Exclusion policy
 
-For a supported release APK, Velto:
+The central policy is implemented in
+`velto_cli/adapters/mobile/qt/android_build_config.py`.
+`settings/android.json` is always excluded. The `exclude` array accepts
+additional project-relative paths or globs for future build-only files.
+For example `"exclude": ["private/", "settings/*.secrets.json"]`.
 
-1. Verifies that the APK embeds a CPython interpreter matching the host
-   interpreter used to generate bytecode.
-2. Compiles application-owned `.py` sources and bundled Velto/PSX/Qyro sources
-   into version-matched sourceless `.pyc` modules.
-3. Precompiles project PSX templates and retains a minimal `main.py` bootstrap
-   for the python-for-android entry point.
-4. Rewrites `assets/private.tar`, updates Android's extraction version
-   marker, aligns the APK, signs with the configured release key and verifies
-   the signature.
-5. Reopens the *signed* artifact and rejects any remaining known application
-   or framework `.py` files (except the bootstrap).
+Exclusions are enforced before third-party source scanning, while creating
+incremental fingerprints, and when verifying APK private archives. Previous
+cached APKs containing newly excluded paths are rejected. The build fails if
+an excluded file remains in the generated APK, rather than publishing it.
 
-Failures leave the input artifact unchanged and **do not publish** a release.
+## Source protection and limitations
 
-## Security scope
+Release output remains fail-closed. Debug builds default to raw Python unless
+enabled in android.json. The protection mode compiles modules to sourceless
+`.pyc` and signs the APK; this does not encrypt Python, and bytecode can be
+decompiled. The APK must include a compatible CPython interpreter. Existing
+AAB protection and native compilation with Nuitka are **not implemented**.
+Do not label these artifacts as Nuitka-protected.
 
-This is **source minimization**, not encryption or strong obfuscation.
-Python bytecode can be decompiled. Keep API keys, credentials, proprietary
-secrets, and signing keys outside the APK. Binary extensions can also be
-reverse-engineered. R8/ProGuard does not protect Python bytecode.
-
-Android does not automatically accept host Python bytecode: CPython minor
-versions and the magic format must match. If the embedded Python interpreter
-cannot be verified, the build fails rather than shipping unusable bytecode.
-
-The separate native-extension distribution and AAB-specific protection flows
-remain future work. Do not label an unprotected AAB as a protected release.
+A protected APK still requires a minimal Python launcher `main.py`.
+Any API keys, signing passwords, and other secrets must stay out of mobile
+client packages entirely.
