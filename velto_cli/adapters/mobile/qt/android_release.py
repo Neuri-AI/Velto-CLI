@@ -124,7 +124,7 @@ def protect_android_release_apk(apk: Path, root: Path) -> Path:
         embedded = {
             (int(m.group(1)), int(m.group(2)))
             for name in target_apk.namelist()
-            if (m := re.search(r"/libpython(\\d+)\\.(\\d+)\\.so$", name))
+            if (m := re.search(r"/libpython(\d+)\.(\d+)\.so$", name))
         }
     if embedded != {sys.version_info[:2]}:
         raise RuntimeError(
