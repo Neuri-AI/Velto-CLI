@@ -11,7 +11,6 @@ import pytest
 from velto_cli.adapters.mobile.qt.android_build_config import (
     android_exclusion_patterns,
     is_android_excluded,
-    isolate_android_excluded_sources,
     load_android_build_config,
     verify_android_exclusions,
 )
@@ -41,32 +40,6 @@ def test_exclusion_policy_accepts_future_paths_and_globs(tmp_path):
     assert is_android_excluded("private/credentials.pem", patterns)
     assert is_android_excluded("settings/prod.secrets.json", patterns)
     assert not is_android_excluded("settings/base.json", patterns)
-
-
-def test_isolation_restores_excluded_files_after_failure(tmp_path):
-    settings = tmp_path / "settings"
-    settings.mkdir()
-    android = settings / "android.json"
-    android.write_text('{"protect_source": true}')
-    with pytest.raises(RuntimeError, match="deploy failed"):
-        with isolate_android_excluded_sources(tmp_path):
-            assert not android.exists()
-            raise RuntimeError("deploy failed")
-    assert load_android_build_config(tmp_path)["protect_source"] is True
-
-
-def test_isolation_hides_other_excluded_files_without_deleting(tmp_path):
-    settings = tmp_path / "settings"
-    settings.mkdir()
-    (settings / "android.json").write_text('{"exclude": ["private/"]}')
-    private = tmp_path / "private"
-    private.mkdir()
-    secret = private / "key.txt"
-    secret.write_text("private")
-    with isolate_android_excluded_sources(tmp_path):
-        assert not (settings / "android.json").exists()
-        assert not private.exists()
-    assert secret.read_text() == "private"
 
 
 def test_source_policy_rejects_excluded_apk_member(tmp_path):
@@ -169,8 +142,10 @@ def test_project_relative_signing_keystore_is_always_excluded(tmp_path):
     store.write_bytes(b"PRIVATE-KEY")
     patterns = android_exclusion_patterns(tmp_path)
     assert is_android_excluded("keys/private-release.bin", patterns)
-    with isolate_android_excluded_sources(tmp_path):
-        assert not store.exists()
+    from velto_cli.adapters.mobile.qt.android_build_inputs import staged_android_project
+    with staged_android_project(tmp_path) as stage:
+        assert not (stage / "keys/private-release.bin").exists()
+        assert store.is_file()
     assert store.read_bytes() == b"PRIVATE-KEY"
 
 
@@ -208,8 +183,10 @@ def test_sign_json_is_never_bundled_and_windows_mac_preserved(tmp_path):
     assert load_android_signing(tmp_path) == content["android"]
     assert "settings/sign.json" not in _project_runtime_assets(tmp_path)
     assert is_android_excluded("settings/sign.json", android_exclusion_patterns(tmp_path))
-    with isolate_android_excluded_sources(tmp_path):
-        assert not (settings / "sign.json").exists()
+    from velto_cli.adapters.mobile.qt.android_build_inputs import staged_android_project
+    with staged_android_project(tmp_path) as stage:
+        assert not (stage / "settings/sign.json").exists()
+        assert (settings / "sign.json").exists()
     assert json.loads((settings / "sign.json").read_text()) == content
 
 
