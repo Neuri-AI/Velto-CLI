@@ -4,32 +4,42 @@ Velto reads **settings/android.json** from the developer's project, not from
 the APK. This file is host-only and is removed from the PySide6/Buildozer
 source tree during deployment, then restored.
 
-Example:
+Keep protection and exclusions in settings/android.json:
 
 ```json
 {
   "protect_source": true,
-  "signing": {
-    "keystore": "/absolute/path/to/release.jks",
-    "alias": "velto-release",
-    "keystore_password": "your-keystore-password",
-    "key_password": "your-key-password"
-  },
   "exclude": []
 }
 ```
 
-The signing section is used for **Release**, not for Debug. For Debug,
-Android's automatic debug signing key is used. Environment variables
-`VELTO_ANDROID_KEYSTORE`, `VELTO_ANDROID_KEY_ALIAS`,
-`VELTO_ANDROID_KEYSTORE_PASSWORD`, and `VELTO_ANDROID_KEY_PASSWORD` still
-work and take precedence over JSON values (useful for CI secrets).
+Keep signing keys for all platforms in the existing **settings/sign.json**:
 
-**Important:** the JSON file is not encrypted. Excluding it from the APK
-does not protect it on your computer, in Git, or in uploaded source archives.
-Do not commit real passwords. Put `settings/android.json` in `.gitignore`
-and keep an `android.example.json` with empty placeholders when needed.
-Use CI secrets through environment variables for published releases.
+```json
+{
+  "windows": { "certificate": "src/sign/windows/certificate.pfx" },
+  "mac": { "identity": "Developer ID Application: Your Name (TEAMID)" },
+  "android": {
+    "keystore": "src/sign/android/release.jks",
+    "alias": "release",
+    "keystore_password": "<local-secret>",
+    "key_password": "<local-secret>"
+  }
+}
+```
+
+The signing section is used for **Release**, not for Debug. Debug uses Android's
+automatic debug signing key. The existing \`VELTO_ANDROID_KEYSTORE\`,
+\`VELTO_ANDROID_KEY_ALIAS\`, \`VELTO_ANDROID_KEYSTORE_PASSWORD\`, and
+\`VELTO_ANDROID_KEY_PASSWORD\` environment variables remain supported and
+override sign.json values for CI. Relative keystore paths are resolved against
+the project root.
+
+**Important:** sign.json is not encrypted. Keep real passwords and signing keys
+out of Git. The Android build excludes both settings/sign.json and
+settings/android.json from the APK, isolates them while PySide scans sources,
+then restores them locally. A preexisting APK containing either file is
+rejected rather than distributed.
 
 ## Commands
 
@@ -49,7 +59,7 @@ is `true`. Release builds always require source protection.
 
 The central policy is implemented in
 `velto_cli/adapters/mobile/qt/android_build_config.py`.
-`settings/android.json` is always excluded. Keystore files (`.jks`,
+`settings/android.json` and `settings/sign.json` are always excluded. Keystore files (`.jks`,
 `.keystore`, `.p12`, `.pfx`) and the configured signing keystore are also
 excluded, even when the keystore has a custom extension. The `exclude` array accepts
 additional project-relative paths or globs for future build-only files.
