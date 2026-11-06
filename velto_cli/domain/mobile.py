@@ -41,6 +41,7 @@ class MobileFreezeRequest:
     debug: bool = False
     init_only: bool = False
     clean: bool = False
+    protect_source: bool = False
     wheel_pyside: Path | None = None
     wheel_shiboken: Path | None = None
 
