@@ -19,7 +19,8 @@ from velto_cli.adapters.mobile.qt.android_runtime_diagnostics import (
 
 def adb(*args: str, capture: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["adb", *args], text=True, capture_output=capture, check=False
+        ["adb", *args], text=True, encoding="utf-8", errors="replace",
+        capture_output=capture, check=False
     )
 
 
@@ -82,9 +83,17 @@ def main() -> int:
             break
         time.sleep(0.25)
 
-    logs = adb("logcat", "-d", "-v", "threadtime", "-b", "main",
-               "-b", "system", "-b", "crash")
-    full_log = logs.stdout + logs.stderr
+    # Logcat can contain arbitrary binary payloads from native Android apps.
+    # Preserve the exact original bytes for incident analysis; only decode a
+    # separate copy for the startup classifier. Never use strict UTF-8.
+    logs = subprocess.run(
+        ["adb", "logcat", "-d", "-v", "threadtime", "-b", "main",
+         "-b", "system", "-b", "crash"],
+        capture_output=True, check=False,
+    )
+    raw_log = logs.stdout + logs.stderr
+    (session / "logcat.raw").write_bytes(raw_log)
+    full_log = raw_log.decode("utf-8", errors="replace")
     (session / "logcat.txt").write_text(full_log, encoding="utf-8")
     if logs.returncode:
         print(f"Could not read logcat; see {session / 'logcat.txt'}", file=sys.stderr)
