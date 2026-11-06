@@ -1,13 +1,10 @@
 """Host-only Android settings, signing metadata, and centralized APK exclusions."""
 from __future__ import annotations
 
-from contextlib import contextmanager
 from fnmatch import fnmatchcase
 import json
 import os
 from pathlib import Path, PurePosixPath
-import tempfile
-from typing import Iterator
 
 ANDROID_CONFIG = "settings/android.json"
 ANDROID_SIGN_CONFIG = "settings/sign.json"
@@ -167,58 +164,3 @@ def assert_android_full_build_safe(root: Path) -> None:
         )
 
 
-@contextmanager
-def isolate_android_excluded_sources(root: Path) -> Iterator[None]:
-    """Hide host-only files before PySide's own recursive source inspection.
-
-    Keep originals intact and restore even when the Android toolchain raises.
-    Directory exclusions are supported by moving each selected subtree,
-    without following symlinks or touching main.py.
-    """
-    patterns = android_exclusion_patterns(root)
-    selected: list[Path] = []
-    for base, dirs, files in os.walk(root, followlinks=False):
-        parent = Path(base)
-        if parent == root:
-            dirs[:] = [d for d in dirs if d not in _IGNORED_TREES]
-        else:
-            dirs[:] = [d for d in dirs if d not in _IGNORED_TREES]
-        for directory in tuple(dirs):
-            path = parent / directory
-            rel = path.relative_to(root).as_posix()
-            if is_android_excluded(rel, patterns):
-                if path.is_symlink():
-                    raise ValueError(f"Excluded Android directory is a symlink: {path}")
-                selected.append(path)
-                dirs.remove(directory)
-        for name in files:
-            path = parent / name
-            rel = path.relative_to(root).as_posix()
-            if is_android_excluded(rel, patterns):
-                if rel == "main.py":
-                    raise ValueError("Android entry point main.py cannot be excluded")
-                if path.is_symlink():
-                    raise ValueError(f"Excluded Android file is a symlink: {path}")
-                selected.append(path)
-    if not selected:
-        yield
-        return
-    temp = Path(tempfile.mkdtemp(prefix=".velto-android-excluded-", dir=root.parent))
-    moved: list[tuple[Path, Path]] = []
-    try:
-        for index, original in enumerate(selected):
-            saved = temp / f"item-{index}"
-            original.rename(saved)
-            moved.append((original, saved))
-        yield
-    finally:
-        for original, saved in reversed(moved):
-            if original.exists() or original.is_symlink():
-                raise RuntimeError(
-                    f"Android toolchain replaced excluded path {original}; "
-                    f"preserved original at {saved}"
-                )
-            original.parent.mkdir(parents=True, exist_ok=True)
-            saved.rename(original)
-        if not any(temp.iterdir()):
-            temp.rmdir()
