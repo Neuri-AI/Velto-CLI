@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from zipfile import ZipFile, BadZipFile
 
 from velto_cli.adapters.mobile.qt.android_cython import _ndk_root
 
@@ -24,17 +25,31 @@ _QT_RECIPES = (
 
 
 def _qt_distribution_artifact(distribution: Path) -> bool:
-    """Accept a freshly generated Qt ARM64 dist, not an arbitrary folder."""
-    native = distribution / "libs/arm64-v8a"
-    if not (
-        (native / "libmain_arm64-v8a.so").is_file()
-        and (native / "libpython3.14.so").is_file()
-    ):
-        return False
-    return (
-        any((distribution / "build/outputs/apk").glob("**/*.apk"))
-        or (distribution / "src/main/AndroidManifest.xml").is_file()
-    )
+    """Validate a completed Qt distribution through its actual APK.
+
+    libpython is commonly packaged under APK lib/arm64-v8a rather than
+    remaining under distribution/libs. Never require the latter location.
+    """
+    apk_root = distribution / "build/outputs/apk"
+    for apk in sorted(apk_root.glob("**/*.apk")):
+        try:
+            with ZipFile(apk) as archive:
+                names = archive.namelist()
+                if (
+                    "lib/arm64-v8a/libpython3.14.so" in names
+                    and any(
+                        name.startswith("lib/arm64-v8a/")
+                        and name.endswith("libmain_arm64-v8a.so")
+                        for name in names
+                    )
+                    and ("assets/private.tar" in names
+                         or "assets/private.mp3" in names)
+                ):
+                    return True
+        except (BadZipFile, OSError):
+            continue
+    return False
+
 
 
 def _distribution(toolchain_root: Path) -> tuple[Path, Path, dict]:
@@ -72,8 +87,8 @@ def _distribution(toolchain_root: Path) -> tuple[Path, Path, dict]:
             )
     raise RuntimeError(
         "No verified ARM64 Qt python-for-android distribution found in "
-        f"{platform}. Expected a generated Qt APK, libmain_arm64-v8a.so "
-        "and Android libpython3.14.so. Cannot recover Cython headers."
+        f"{platform}. Expected a generated Qt APK containing ARM64 libmain and "
+        "Android libpython3.14.so. Cannot recover Cython headers."
     )
 
 
