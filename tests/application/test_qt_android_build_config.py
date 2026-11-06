@@ -307,3 +307,34 @@ def test_android_stage_rewrites_absolute_qt_spec_paths_only_in_copy(tmp_path):
         assert str(stage / "main.py") in contents
         assert str(root / "main.py") not in contents
     assert spec.read_text() == original
+
+
+def test_android_cython_only_configuration(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "android.json").write_text(
+        '{"protect_source":true,"protection_backend":"cython","obfuscate":true,"exclude":[]}'
+    )
+    config = load_android_build_config(tmp_path)
+    assert config["protection_backend"] == "cython"
+    assert config["obfuscate"] is True
+    (settings / "android.json").write_text(
+        '{"protect_source":true,"protection_backend":"pyc"}'
+    )
+    with pytest.raises(ValueError, match="cython"):
+        load_android_build_config(tmp_path)
+    (settings / "android.json").write_text(
+        '{"protect_source":true,"protection_backend":"nuitka"}'
+    )
+    with pytest.raises(ValueError, match="cython"):
+        load_android_build_config(tmp_path)
+
+
+def test_android_obfuscate_requires_boolean(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "android.json").write_text(
+        '{"protection_backend":"cython","obfuscate":"true"}'
+    )
+    with pytest.raises(ValueError, match="obfuscate"):
+        load_android_build_config(tmp_path)
