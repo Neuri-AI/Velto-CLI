@@ -536,10 +536,15 @@ class QtAndroidBuilder:
                 except (OSError, RuntimeError, ValueError) as exc:
                     self._warning(f"Android incremental cache unavailable: {exc}")
             if enabled and request.protect_source and request.debug:
-                protect_android_apk(built.path, request.project_root, debug=True)
+                protect_android_apk(
+                    built.path, request.project_root, debug=True,
+                    toolchain_root=stage,
+                )
                 self._notice("Protected Android debug APK signed and verified.")
             elif enabled and not request.debug:
-                protect_android_release_apk(built.path, request.project_root)
+                protect_android_release_apk(
+                    built.path, request.project_root, toolchain_root=stage,
+                )
                 verify_android_release_source_protection(
                     built.path, request.project_root
                 )
