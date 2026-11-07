@@ -209,7 +209,8 @@ def _p4a_checkout(toolchain_root: Path) -> Path:
         raise RuntimeError(
             "Buildozer removed its python-for-android source checkout and "
             "no usable local checkout was found. Recovery requires the "
-            "exact 40-character p4a.commit pinned in the generated "
+            "exact Git commit hash (7-40 hexadecimal characters) in "
+            "p4a.commit pinned in the generated "
             f"buildozer.spec at {spec}, or "
             "VELTO_ANDROID_P4A_SOURCE_DIR pointing to that checkout. "
             "Do not install an unpinned p4a version."
