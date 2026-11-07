@@ -50,27 +50,32 @@ def _verified_qt_apk(apk: Path) -> bool:
 def _distribution(
     toolchain_root: Path, apk: Path | None = None,
 ) -> tuple[Path, Path, dict]:
+    """Select existing p4a dist, or plan a fresh one from a verified APK.
+
+    PySide6 may delete the complete build-arm64-v8a/dists tree after
+    packaging. A missing dist is NOT evidence that the earlier APK failed.
+    The new dist path is only a command argument to p4a create, not a
+    directory that Velto creates or modifies itself.
+    """
     platform = toolchain_root / ".buildozer/android/platform"
     storage = platform / "build-arm64-v8a"
     dist_base = storage / "dists"
-    if not dist_base.is_dir():
-        raise RuntimeError(
-            f"Qt p4a distribution directory missing: {dist_base}"
-        )
     if apk is not None and not _verified_qt_apk(apk):
         raise RuntimeError(
-            "Cython recovery requires the already-generated, valid Qt APK "
-            "containing Android ARM64 CPython, Qt libraries, and private assets."
+            "Cython recovery requires a valid previously generated Qt "
+            "APK containing ARM64 CPython, Qt6, and private assets."
         )
-    preferred = (
-        dist_base / toolchain_root.name if apk is not None else None
+    roots = (
+        sorted(p for p in dist_base.iterdir() if p.is_dir())
+        if dist_base.is_dir() else []
     )
-    roots = [
-        candidate for candidate in dist_base.iterdir()
-        if candidate.is_dir()
-    ]
-    if preferred is not None and preferred.is_dir():
+    preferred = dist_base / toolchain_root.name
+    if preferred.is_dir():
         roots = [preferred]
+    elif not roots and apk is not None:
+        # Qt cleaned dists/ after finishing the APK. Reconstruct the dist
+        # metadata from the verified output, leaving all app files intact.
+        return preferred, storage, {"recipes": list(_QT_RECIPES)}
     elif len(roots) != 1:
         raise RuntimeError(
             "Cannot unambiguously select Qt p4a distribution. "
@@ -78,7 +83,7 @@ def _distribution(
         )
     for distribution in roots:
         metadata = distribution / "dist_info.json"
-        info: dict | None = None
+        info = None
         if metadata.is_file():
             try:
                 value = json.loads(metadata.read_text(encoding="utf-8"))
@@ -87,13 +92,13 @@ def _distribution(
             except (OSError, ValueError):
                 pass
         recipes = info.get("recipes") if info else None
-        if isinstance(recipes, list) and {
-            "python3", "pyside6", "shiboken6",
-        }.issubset(recipes):
+        if (
+            isinstance(recipes, list)
+            and all(isinstance(item, str) and item for item in recipes)
+            and {"python3", "pyside6", "shiboken6"}.issubset(recipes)
+        ):
             return distribution, storage, info
         if apk is not None:
-            # A real Qt APK was produced by the same stage, and p4a can
-            # discard the intermediate metadata and duplicated .so files.
             return distribution, storage, {"recipes": list(_QT_RECIPES)}
     raise RuntimeError(
         "Cannot verify a Qt p4a distribution. Supply the finished "
