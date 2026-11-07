@@ -412,5 +412,5 @@ def test_p4a_checkout_requires_pinned_commit_for_reclone(
     (stage / "buildozer.spec").write_text(
         "[app]\np4a.branch = develop\np4a.commit = HEAD\n"
     )
-    with pytest.raises(RuntimeError, match="exact 40-character p4a.commit"):
+    with pytest.raises(RuntimeError, match="exact Git commit hash"):
         p4a._p4a_checkout(stage)
