@@ -262,7 +262,7 @@ def test_p4a_recovery_refuses_unverified_dist_without_metadata(tmp_path):
     dist.mkdir(parents=True)
     (dist / "build/outputs/apk/debug").mkdir(parents=True)
     (dist / "build/outputs/apk/debug/stale.apk").write_bytes(b"stale")
-    with pytest.raises(RuntimeError, match="valid Qt APK"):
+    with pytest.raises(RuntimeError, match="valid previously generated Qt APK"):
         p4a._distribution(tmp_path, dist / "build/outputs/apk/debug/stale.apk")
 
 
@@ -319,3 +319,23 @@ def test_p4a_missing_dists_cannot_proceed_without_real_apk(tmp_path):
     fake.write_bytes(b"not an apk")
     with pytest.raises(RuntimeError, match="valid previously generated Qt"):
         p4a._distribution(tmp_path, fake)
+
+
+@pytest.mark.parametrize("filename,expected", [
+    ("AndroidAppQt-0.1-arm64-v8a-debug.apk", "AndroidAppQt"),
+    ("AndroidAppQt-debug.apk", "AndroidAppQt"),
+    ("AndroidAppQt-1.2.3-arm64-v8a-release.apk", "AndroidAppQt"),
+])
+def test_p4a_distribution_name_from_verified_apk_filename(filename, expected):
+    from velto_cli.adapters.mobile.qt.android_p4a_headers import (
+        _distribution_name_from_apk,
+    )
+    assert _distribution_name_from_apk(Path(filename)) == expected
+
+
+def test_p4a_distribution_name_rejects_unexpected_filename():
+    from velto_cli.adapters.mobile.qt.android_p4a_headers import (
+        _distribution_name_from_apk,
+    )
+    with pytest.raises(RuntimeError, match="Cannot determine"):
+        _distribution_name_from_apk(Path("broken.apk"))
