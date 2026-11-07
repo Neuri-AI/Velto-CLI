@@ -6,6 +6,8 @@ distribution using a separate create command after the normal APK build.
 from __future__ import annotations
 
 import json
+from configparser import ConfigParser
+import shutil
 import os
 import re
 from pathlib import Path
@@ -160,23 +162,109 @@ def _create_command(
     ]
 
 
-def _p4a_checkout(toolchain_root: Path) -> Path:
-    """Find the exact python-for-android checkout used by Buildozer.
-
-    The host Python environment need not have pythonforandroid installed as
-    a pip package: Buildozer imports it from this project-stage checkout.
-    """
-    checkout = toolchain_root / ".buildozer/android/platform/python-for-android"
-    if not (
+def _valid_p4a_checkout(checkout: Path) -> bool:
+    return (
         (checkout / "pythonforandroid/__init__.py").is_file()
         and (checkout / "pythonforandroid/toolchain.py").is_file()
+    )
+
+
+def _p4a_checkout(toolchain_root: Path) -> Path:
+    """Resolve p4a from the existing build, then the original pinned revision.
+
+    PySide6/Buildozer may clean their temporary clone after APK creation.
+    Do not assume a pip-installable package exists in the host interpreter.
+    """
+    platform = toolchain_root / ".buildozer/android/platform"
+    spec = toolchain_root / "buildozer.spec"
+    config = ConfigParser(interpolation=None)
+    if spec.is_file():
+        config.read(spec, encoding="utf-8")
+    candidates = [
+        platform / "python-for-android",
+        Path.home() / ".buildozer/android/platform/python-for-android",
+    ]
+    for variable in ("VELTO_ANDROID_P4A_SOURCE_DIR", "P4A_SOURCE_DIR"):
+        if os.environ.get(variable):
+            candidates.insert(0, Path(os.environ[variable]).expanduser())
+    declared = config.get("app", "p4a.source_dir", fallback="").strip()
+    if declared:
+        path = Path(declared).expanduser()
+        candidates.insert(
+            0, path if path.is_absolute() else toolchain_root / path,
+        )
+    for candidate in candidates:
+        if _valid_p4a_checkout(candidate):
+            return candidate
+
+    # Buildozer may remove its clone after a successful build. The generated
+    # buildozer.spec pins its exact p4a Git commit. Re-create precisely that
+    # source revision outside the disposable project, not a floating branch.
+    commit = config.get("app", "p4a.commit", fallback="").strip()
+    fork = config.get("app", "p4a.fork", fallback="kivy").strip()
+    url = config.get("app", "p4a.url", fallback="").strip()
+    if not url:
+        url = f"https://github.com/{fork}/python-for-android.git"
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", commit):
+        raise RuntimeError(
+            "Buildozer removed its python-for-android source checkout and "
+            "no usable local checkout was found. Recovery requires the "
+            "exact 40-character p4a.commit pinned in the generated "
+            f"buildozer.spec at {spec}, or "
+            "VELTO_ANDROID_P4A_SOURCE_DIR pointing to that checkout. "
+            "Do not install an unpinned p4a version."
+        )
+    if not re.fullmatch(
+        r"https://github\.com/[A-Za-z0-9_.-]+/python-for-android(?:\.git)?",
+        url,
     ):
         raise RuntimeError(
-            "Cannot locate Buildozer's python-for-android checkout at "
-            f"{checkout}. Cython header recovery requires the exact "
-            "toolchain used to generate the APK, not a separate pip install."
+            "Cannot recover p4a source from an unexpected Git URL. "
+            "Provide a trusted checkout using VELTO_ANDROID_P4A_SOURCE_DIR."
         )
-    return checkout
+    cache = (
+        Path.home() / ".velto/mobile/android/qt/p4a-source" / commit.lower()
+    )
+    if _valid_p4a_checkout(cache):
+        return cache
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    if cache.exists():
+        raise RuntimeError(
+            f"Invalid p4a checkout already exists at {cache}; refusing overwrite."
+        )
+    temporary = cache.parent / (".p4a-" + commit.lower())
+    if temporary.exists():
+        raise RuntimeError(
+            f"Interrupted p4a checkout exists at {temporary}; refusing overwrite."
+        )
+    try:
+        subprocess.run(
+            ["git", "clone", "--filter=blob:none", "--no-checkout",
+             url, str(temporary)],
+            check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(temporary), "checkout", "--detach", commit],
+            check=True, capture_output=True, text=True,
+        )
+        actual = subprocess.run(
+            ["git", "-C", str(temporary), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        if actual.lower() != commit.lower() or not _valid_p4a_checkout(temporary):
+            raise RuntimeError("Downloaded p4a source does not match pinned commit")
+        temporary.rename(cache)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(
+            "Unable to restore the pinned p4a checkout from the generated "
+            f"buildozer.spec (commit {commit}). "
+            "Use VELTO_ANDROID_P4A_SOURCE_DIR for an existing matching checkout."
+        ) from exc
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+    return cache
+
 
 
 def recover_android_python_headers(
