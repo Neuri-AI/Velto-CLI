@@ -123,3 +123,25 @@ checkout to the child process's `PYTHONPATH`. This does not change the
 user's environment and does not install a second p4a version. If the checkout
 was removed, Velto fails with a targeted diagnostic rather than claiming
 Cython compiled anything.
+
+## Restoring the p4a source after PySide6 cleanup
+
+Some successful PySide6 Android deployments also remove the staged
+`python-for-android/` checkout. Cython header recovery first searches the
+staged checkout, the user's Buildozer checkout, and an explicitly supplied
+`VELTO_ANDROID_P4A_SOURCE_DIR` or `P4A_SOURCE_DIR`. It also honors a
+`p4a.source_dir` declared by the generated `buildozer.spec`.
+
+If none exists, Velto reads the generated `buildozer.spec` and restores the
+**exact 40-character `p4a.commit`** from its trusted GitHub
+`python-for-android` repository into
+`~/.velto/mobile/android/qt/p4a-source/<commit>/`. This cache is outside
+the disposable application stage and is reused later. A floating `HEAD`
+or an absent commit is not accepted, because switching p4a versions could
+change the embedded CPython ABI. This recovery may need Git and network
+access. It neither installs p4a into the host Conda environment nor edits
+the developer's project files.
+
+If PySide6 removes **both** the checkout and its generated spec, configure
+`VELTO_ANDROID_P4A_SOURCE_DIR` to a trusted existing checkout pinned to the
+same version used to make the APK; Velto will fail closed otherwise.
