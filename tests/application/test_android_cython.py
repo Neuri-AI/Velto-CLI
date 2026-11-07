@@ -365,7 +365,7 @@ def test_p4a_checkout_uses_buildozer_staged_module(tmp_path):
 
 def test_p4a_checkout_fails_closed_if_missing(tmp_path):
     from velto_cli.adapters.mobile.qt.android_p4a_headers import _p4a_checkout
-    with pytest.raises(RuntimeError, match="Buildozer's python-for-android checkout"):
+    with pytest.raises(RuntimeError, match="Buildozer removed its python-for-android source checkout"):
         _p4a_checkout(tmp_path)
 
 
