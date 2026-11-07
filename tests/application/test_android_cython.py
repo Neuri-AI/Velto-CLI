@@ -33,6 +33,38 @@ def test_cython_does_not_fallback_to_python_bytecode(monkeypatch):
     assert not Path("main.so").exists()
 
 
+def test_android_extension_links_math_library(tmp_path, monkeypatch):
+    from zipfile import ZipFile
+    from velto_cli.adapters.mobile.qt import android_cython
+
+    elf = bytearray(32)
+    elf[:6] = b"\x7fELF\x02\x01"
+    elf[18:20] = (183).to_bytes(2, "little")
+    apk = tmp_path / "app.apk"
+    with ZipFile(apk, "w") as bundle:
+        bundle.writestr("lib/arm64-v8a/libpython3.14.so", elf)
+    destination = tmp_path / "module.so"
+    commands = []
+
+    monkeypatch.setattr(android_cython, "_cython_python", lambda: Path(sys.executable))
+    monkeypatch.setattr(android_cython, "_ndk_tools", lambda api: (Path("clang"), None))
+    monkeypatch.setattr(android_cython, "_target_headers", lambda *a, **kw: [tmp_path])
+    monkeypatch.setattr(android_cython, "_cached_headers", lambda key: [tmp_path])
+
+    def run(command):
+        commands.append(command)
+        if command[0] == "clang":
+            destination.write_bytes(elf)
+
+    monkeypatch.setattr(android_cython, "_run", run)
+    android_cython.compile_android_extensions(
+        [("module.py", tmp_path / "module.py", destination)],
+        apk=apk, toolchain_root=tmp_path, obfuscate=False,
+    )
+    assert "-lm" in commands[1]
+    assert commands[1].index("-lm") > commands[1].index("-lpython3.14")
+
+
 @pytest.mark.parametrize("source_name,expected_module,expected_output", [
     ("main.py", "main", "main.so"),
     ("components/test.py", "components.test", "components/test.so"),
@@ -172,6 +204,9 @@ def test_p4a_native_recovery_only_invokes_create(tmp_path, monkeypatch):
         ]
     }))
     (tmp_path / "deployment/recipes").mkdir(parents=True)
+    (tmp_path / "buildozer.spec").write_text(
+        "[app]\nandroid.api = 35\nandroid.ndk_api = 28\n"
+    )
     monkeypatch.setattr(
         android_p4a_headers, "_ndk_root", lambda: tmp_path / "ndk",
     )
@@ -182,15 +217,17 @@ def test_p4a_native_recovery_only_invokes_create(tmp_path, monkeypatch):
     assert cmd[3] == "create"
     assert "--force-build" in cmd
     assert "--local-recipes" in cmd
+    assert cmd[cmd.index("--android-api") + 1] == "35"
+    assert cmd[cmd.index("--ndk-api") + 1] == "28"
     assert "--qt-libs" not in cmd
     assert "--load-local-libs" not in cmd
     assert "apk" not in cmd
 
 
-def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch):
+def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch, capsys):
     import json
     import os
-    from subprocess import CompletedProcess
+    from io import StringIO
     from velto_cli.adapters.mobile.qt import android_p4a_headers
 
     storage = tmp_path / ".buildozer/android/platform/build-arm64-v8a"
@@ -223,9 +260,13 @@ def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch):
         include.mkdir(parents=True)
         (include / "Python.h").write_text("native")
         (include / "pyconfig.h").write_text("target")
-        return CompletedProcess(cmd, 0, "", "")
+        class Process:
+            stdout = StringIO("p4a compiling Python\n")
+            def wait(self):
+                return 0
+        return Process()
 
-    monkeypatch.setattr(android_p4a_headers.subprocess, "run", mock_run)
+    monkeypatch.setattr(android_p4a_headers.subprocess, "Popen", mock_run)
     android_p4a_headers.recover_android_python_headers(tmp_path, (3, 14))
     assert len(commands) == 1
     assert commands[0][0][3] == "create"
@@ -234,6 +275,52 @@ def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch):
         str(checkout) + os.pathsep + "/existing/python/path"
     )
     assert "--force-build" in commands[0][0]
+    assert commands[0][1]["PYTHONUNBUFFERED"] == "1"
+    assert "p4a compiling Python" in capsys.readouterr().out
+
+
+def test_p4a_recovery_streams_failure_and_reports_exit(tmp_path, monkeypatch, capsys):
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+
+    monkeypatch.setattr(p4a, "_create_command", lambda *args: [
+        sys.executable, "-c",
+        "import sys; print('recipe failed', file=sys.stderr); sys.exit(7)",
+    ])
+    monkeypatch.setattr(p4a, "_p4a_checkout", lambda root: tmp_path)
+    monkeypatch.setattr(p4a, "_ndk_root", lambda: tmp_path)
+    monkeypatch.setattr(p4a, "_android_sdk_root", lambda: tmp_path)
+    with pytest.raises(RuntimeError, match="p4a create failed \\(exit 7\\).*recipe failed"):
+        p4a.recover_android_python_headers(tmp_path, (3, 14))
+    assert "recipe failed" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_p4a_download_progress_avoids_flooding_and_preserves_logs(interactive):
+    from io import StringIO
+    from velto_cli.adapters.mobile.qt.android_p4a_headers import _RecoveryOutput
+
+    class Stream(StringIO):
+        def isatty(self):
+            return interactive
+
+    stream = Stream()
+    output = _RecoveryOutput(stream)
+    output.write("[INFO] Downloading python3 from example\n")
+    for percent in (0, 1, 2, 9, 10, 11, 48, 48.1, 50, 100):
+        output.write(f"- Download {percent}%\n")
+    output.write("Download failed: retrying\n")
+    output.write("- Download 0%\n")
+    output.finish()
+    result = stream.getvalue()
+    assert "Downloading python3 from example" in result
+    assert "Download failed: retrying" in result
+    if interactive:
+        assert "\r  Download [" in result
+        assert "100.00%\nDownload failed" in result
+    else:
+        assert "Download 48.10%" not in result
+        assert result.count("Download 0.00%") == 2
+        assert len(result.splitlines()) < 10
 
 
 def test_p4a_recovery_finds_verified_qt_dist_without_metadata(tmp_path, monkeypatch):

@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import threading
+import time
 from zipfile import ZipFile, BadZipFile
 
 from velto_cli.adapters.mobile.qt.android_cython import _ndk_root
@@ -149,7 +151,14 @@ def _create_command(
         raise RuntimeError(
             "PySide6 Qt local recipes missing; cannot safely rebuild p4a"
         )
-    return [
+    config = ConfigParser(interpolation=None)
+    spec = toolchain_root / "buildozer.spec"
+    if spec.is_file():
+        config.read(spec, encoding="utf-8")
+    api = config.get("app", "android.api", fallback="").strip()
+    if api and (not api.isdecimal() or int(api) < 1):
+        raise RuntimeError(f"Invalid android.api in {spec}: {api!r}")
+    command = [
         sys.executable, "-m", "pythonforandroid.toolchain", "create",
         "--bootstrap", "qt", "--dist_name", distribution.name,
         "--requirements", ",".join(info["recipes"]),
@@ -160,6 +169,9 @@ def _create_command(
         "--ndk-dir", str(_ndk_root()),
         "--copy-libs", "--force-build",
     ]
+    if api:
+        command.extend(["--android-api", api])
+    return command
 
 
 def _valid_p4a_checkout(checkout: Path) -> bool:
@@ -268,6 +280,58 @@ def _p4a_checkout(toolchain_root: Path) -> Path:
 
 
 
+class _RecoveryOutput:
+    """Render p4a download updates without flooding logs."""
+
+    _download = re.compile(r"^\s*- Download\s+(\d+(?:\.\d+)?)%\s*$")
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.interactive = stream.isatty()
+        self.lock = threading.Lock()
+        self.active = False
+        self.last_bucket = -1
+        self.last_percent = -1.0
+
+    def write(self, line: str) -> None:
+        with self.lock:
+            match = self._download.match(line)
+            if match:
+                percent = min(100.0, float(match.group(1)))
+                if percent < self.last_percent:
+                    self.last_bucket = -1
+                self.last_percent = percent
+                if self.interactive:
+                    filled = int(percent / 5)
+                    self.stream.write(
+                        f"\r  Download [{'#' * filled}{'-' * (20 - filled)}] {percent:6.2f}%"
+                    )
+                    self.stream.flush()
+                    self.active = True
+                else:
+                    bucket = int(percent // 10)
+                    if bucket > self.last_bucket:
+                        self.stream.write(f"[INFO] Download {percent:.2f}%\n")
+                        self.stream.flush()
+                        self.last_bucket = bucket
+                return
+            self._finish_progress()
+            self.stream.write(line)
+            self.stream.flush()
+
+    def _finish_progress(self) -> None:
+        if self.active:
+            self.stream.write("\n")
+            self.active = False
+        self.last_bucket = -1
+        self.last_percent = -1.0
+
+    def finish(self) -> None:
+        with self.lock:
+            self._finish_progress()
+            self.stream.flush()
+
+
 def recover_android_python_headers(
     toolchain_root: Path, version: tuple[int, int], *, ndk_api: int = 28,
     apk: Path | None = None,
@@ -283,24 +347,53 @@ def recover_android_python_headers(
     env["ANDROIDNDK"] = str(_ndk_root())
     env["ANDROIDSDK"] = str(_android_sdk_root())
     env["PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE"] = "0"
+    env["PYTHONUNBUFFERED"] = "1"
     print(
         "[INFO] Rebuilding Android CPython recipe for Cython headers "
         "(separate p4a create, without Qt APK arguments).",
         flush=True,
     )
     try:
-        result = subprocess.run(
-            command, env=env, cwd=toolchain_root,
-            capture_output=True, text=True, encoding="utf-8",
-            errors="replace", check=False,
+        process = subprocess.Popen(
+            command, env=env, cwd=toolchain_root, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+            errors="replace", bufsize=1,
         )
     except OSError as exc:
         raise RuntimeError("Cannot run p4a native recipe recovery") from exc
-    if result.returncode:
+    finished = threading.Event()
+    started = time.monotonic()
+    output = _RecoveryOutput(sys.stdout)
+
+    def heartbeat():
+        while not finished.wait(30):
+            elapsed = int(time.monotonic() - started)
+            output.write(f"[INFO] p4a header recovery still running ({elapsed}s).\n")
+
+    reporter = threading.Thread(target=heartbeat, daemon=True)
+    reporter.start()
+    tail = ""
+    try:
+        assert process.stdout is not None
+        for line in process.stdout:
+            output.write(line)
+            tail = (tail + line)[-4000:]
+        returncode = process.wait()
+    except BaseException:
+        process.terminate()
+        process.wait()
+        raise
+    finally:
+        finished.set()
+        reporter.join()
+        output.finish()
+        if process.stdout is not None:
+            process.stdout.close()
+    if returncode:
         raise RuntimeError(
-            f"p4a create failed (exit {result.returncode}): "
-            + (result.stderr or result.stdout)[-4000:]
+            f"p4a create failed (exit {returncode}): " + tail
         )
+    print("[INFO] p4a header recovery finished; checking target headers.", flush=True)
     wanted = f"python{version[0]}.{version[1]}"
     platform = toolchain_root / ".buildozer/android/platform"
     for header in platform.glob(

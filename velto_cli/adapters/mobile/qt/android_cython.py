@@ -346,6 +346,10 @@ def compile_android_extensions(
             if _cached_headers(target_hash) is None:
                 headers = _cache_headers(headers, target_hash)
             for index, (name, source, destination) in enumerate(jobs):
+                print(
+                    f"[INFO] Cython Android: compiling {index + 1}/{len(jobs)}: {name}",
+                    flush=True,
+                )
                 mod = module_name(name)
                 cfile = link / f"module_{index}.c"
                 _run([
@@ -361,6 +365,7 @@ def compile_android_extensions(
                     *[flag for directory in headers for flag in ("-I", str(directory))],
                     str(cfile), "-L", str(link),
                     f"-lpython{version[0]}.{version[1]}",
+                    "-lm",
                     "-o", str(destination),
                 ]
                 _run(command)

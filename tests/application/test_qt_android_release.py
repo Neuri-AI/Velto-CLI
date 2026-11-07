@@ -145,6 +145,45 @@ def test_cython_preparation_preserves_main_guard_on_import():
     assert b".pyc" not in _bootstrap()
 
 
+def test_cython_preparation_does_not_capture_stylesheet_tag():
+    from velto_cli.adapters.mobile.qt.android_release import _prepare_cython_source
+
+    source = b'''from velto.ui import psx
+def render():
+    return psx('<link rel="stylesheet" href="css/styles.css"/><div>Hello</div>')
+'''
+    prepared = _prepare_cython_source(source, "components/test.py")
+    assert b"lambda: link" not in prepared
+    assert b"css/styles.css" in prepared
+
+
+def test_cython_preparation_keeps_real_link_reference():
+    from velto_cli.adapters.mobile.qt.android_release import _prepare_cython_source
+
+    source = b'''from velto.ui import psx
+def render(link):
+    return psx('<link rel="stylesheet" href="css/styles.css"/><div>{link}</div>')
+'''
+    prepared = _prepare_cython_source(source, "components/test.py")
+    assert b"lambda: link" in prepared
+
+
+def test_cython_preparation_preserves_numeric_tuple_values():
+    from velto_cli.adapters.mobile.qt.android_release import _prepare_cython_source
+
+    source = b'''from __future__ import annotations
+def color(visible):
+    return (0.62, 0.78) if visible else (0, 0)
+'''
+    prepared = _prepare_cython_source(source, "psx/renderers/kivy/scroll.py")
+    namespace = {}
+    exec(compile(prepared, "scroll.py", "exec"), namespace)
+    assert namespace["color"](True) == (0.62, 0.78)
+    assert namespace["color"](False) == (0, 0)
+    assert all(type(item) is int for item in namespace["color"](False))
+    assert b"_velto_cython_tuple" in prepared
+
+
 def test_cython_target_is_android_elf64_arm64_only():
     from velto_cli.adapters.mobile.qt.android_cython import _is_elf_arm64
     data = bytearray(32)

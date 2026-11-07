@@ -7,6 +7,7 @@ transformed. Never rewrite python-for-android's interpreter/stdlib.
 from __future__ import annotations
 
 import ast
+from dataclasses import fields, is_dataclass
 import hashlib
 import io
 import os
@@ -50,6 +51,53 @@ def _owned(name: str, root: Path) -> bool:
 
 def _prepare_cython_source(source: bytes, name: str) -> bytes:
     """Compile project PSX markup lexically before Cython C translation."""
+    if name == "psx/renderers/kivy/scroll.py":
+        # Cython infers incompatible C tuple types for this Python conditional
+        # (float RGBA versus integer RGBA). Construct Python tuples explicitly
+        # in the temporary source, preserving the element values and types.
+        tree = ast.parse(source, filename=name)
+        class BoxColorTuples(ast.NodeTransformer):
+            changed = False
+
+            def visit_IfExp(self, node):
+                self.generic_visit(node)
+                if not (isinstance(node.body, ast.Tuple) and
+                        isinstance(node.orelse, ast.Tuple)):
+                    return node
+                def types(value):
+                    if not all(isinstance(item, ast.Constant) and
+                               type(item.value) in (int, float)
+                               for item in value.elts):
+                        return set()
+                    return {type(item.value) for item in value.elts}
+                if {frozenset(types(node.body)), frozenset(types(node.orelse))} != {
+                    frozenset({int}), frozenset({float}),
+                }:
+                    return node
+                self.changed = True
+                for attr in ("body", "orelse"):
+                    original = getattr(node, attr)
+                    wrapped = ast.Call(
+                        func=ast.Name(id="_velto_cython_tuple", ctx=ast.Load()),
+                        args=[ast.List(elts=original.elts, ctx=ast.Load())],
+                        keywords=[],
+                    )
+                    setattr(node, attr, ast.copy_location(wrapped, original))
+                return node
+
+        transformer = BoxColorTuples()
+        tree = transformer.visit(tree)
+        if transformer.changed:
+            index = 1 if (tree.body and isinstance(tree.body[0], ast.Expr)
+                          and isinstance(tree.body[0].value, ast.Constant)
+                          and isinstance(tree.body[0].value.value, str)) else 0
+            while (index < len(tree.body) and isinstance(tree.body[index], ast.ImportFrom)
+                   and tree.body[index].module == "__future__"):
+                index += 1
+            tree.body.insert(index, ast.ImportFrom(
+                module="builtins", names=[ast.alias(name="tuple", asname="_velto_cython_tuple")], level=0,
+            ))
+            return (ast.unparse(ast.fix_missing_locations(tree)) + "\n").encode("utf-8")
     if name.startswith(tuple(package + "/" for package in PACKAGES)):
         return source
     from psx.markup.transform import transform_source
@@ -58,6 +106,54 @@ def _prepare_cython_source(source: bytes, name: str) -> bytes:
     prepared = transform_source(
         source.decode("utf-8"), filename=name, precompiled=True,
     ).source
+    # Older PSX transformers mistakenly capture the stylesheet <link> tag
+    # as a Python name. Keep actual {link} references and only remove the
+    # spurious capture from templates that do not reference that name.
+    from psx.markup.ast import Reference
+    from psx.markup.parser import parse
+
+    def references_link(value):
+        if isinstance(value, Reference):
+            return bool(value.path) and value.path[0] == "link"
+        if is_dataclass(value) and not isinstance(value, type):
+            return any(references_link(getattr(value, f.name)) for f in fields(value))
+        if isinstance(value, (tuple, list)):
+            return any(references_link(item) for item in value)
+        return False
+
+    tree = ast.parse(prepared, filename=name)
+    stylesheet_templates = set()
+    for statement in tree.body:
+        if (isinstance(statement, ast.Assign) and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Name)
+            and statement.value.func.id == "_psx_compile_template"
+            and statement.value.args
+            and isinstance(statement.value.args[0], ast.Constant)
+            and isinstance(statement.value.args[0].value, str)):
+            markup = statement.value.args[0].value
+            if "<link" in markup and not references_link(parse(markup, filename=name)):
+                stylesheet_templates.add(statement.targets[0].id)
+
+    class RemoveSpuriousLink(ast.NodeTransformer):
+        def visit_Call(self, node):
+            self.generic_visit(node)
+            if (isinstance(node.func, ast.Attribute)
+                and node.func.attr == "render_lexical"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in stylesheet_templates
+                and node.args and isinstance(node.args[0], ast.Dict)):
+                scope = node.args[0]
+                pairs = [(key, value) for key, value in zip(scope.keys, scope.values)
+                         if not (isinstance(key, ast.Constant) and key.value == "link")]
+                scope.keys = [key for key, _ in pairs]
+                scope.values = [value for _, value in pairs]
+            return node
+
+    if stylesheet_templates:
+        tree = ast.fix_missing_locations(RemoveSpuriousLink().visit(tree))
+        prepared = ast.unparse(tree)
     if name == "main.py":
         # p4a requires an executable main.py loader. The protected extension
         # imports as module "main", so preserve the application's original
