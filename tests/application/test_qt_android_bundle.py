@@ -19,10 +19,18 @@ def android_distribution(tmp_path: Path, *, packages=()):
         with tarfile.open(fileobj=payload, mode="w") as bundle:
             for name in packages:
                 content = b"# Python source"
-                info = tarfile.TarInfo(f"{name}/__init__.py")
+                info = tarfile.TarInfo(f"_python_bundle/site-packages/{name}/__init__.py")
                 info.size = len(content)
                 bundle.addfile(info, io.BytesIO(content))
-        apk.writestr("assets/private.tar", payload.getvalue())
+            if packages:
+                for name in ("velto", "qyro_engine", "velto_core", "velto_cinnamon_core", "resvg_py"):
+                    info = tarfile.TarInfo(f"_python_bundle/site-packages/{name}-0.1.1.dist-info/METADATA")
+                    info.size = 1
+                    bundle.addfile(info, io.BytesIO(b" "))
+                info = tarfile.TarInfo("_python_bundle/site-packages/_sfle_native/_sfle_native.so")
+                info.size = 1
+                bundle.addfile(info, io.BytesIO(b" "))
+        apk.writestr("lib/arm64-v8a/libpybundle.so", payload.getvalue())
     return artifact
 
 
@@ -54,9 +62,22 @@ def test_non_velto_qt_app_is_not_restricted(tmp_path):
     ) is None
 
 
+def test_nested_entry_checks_runtime_from_project_dependencies(tmp_path):
+    artifact = android_distribution(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\ndependencies = ["velto"]\n')
+    entry = tmp_path / "src" / "launch.py"
+    entry.parent.mkdir()
+    entry.write_text("from application import start\n")
+    with pytest.raises(RuntimeError, match="missing required Velto modules"):
+        MobileToolchainFreezer(Mock())._verify_qt_android_velto_bundle(
+            artifact, entry=entry, project_root=tmp_path
+        )
+
+
 def test_ast_import_detection(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_sources import uses_velto
     entry = tmp_path / "main.py"
-    detector = MobileToolchainFreezer._requires_velto_runtime
+    detector = uses_velto
     entry.write_text("import velto.ui\n")
     assert detector(entry)
     entry.write_text("# from velto import VeltoContext\nprint('ok')\n")

@@ -12,6 +12,10 @@ import subprocess
 import sys
 import time
 
+# Prefer the checkout when the script is executed directly.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from velto_cli.adapters.mobile.qt.android_runtime_diagnostics import (
     classify_android_startup,
 )

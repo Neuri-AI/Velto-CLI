@@ -52,3 +52,17 @@ def test_smoke_test_preserves_non_utf8_logcat(tmp_path, monkeypatch, capsys):
     assert calls[0][1]["capture_output"] is True
     assert "text" not in calls[0][1]
     assert "PASS" in capsys.readouterr().out
+
+
+def test_smoke_test_runs_directly_from_checkout(tmp_path):
+    import os
+
+    root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(root / "scripts/android_smoke_test.py"), "--help"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--apk" in result.stdout

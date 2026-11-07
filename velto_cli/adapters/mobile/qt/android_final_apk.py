@@ -109,7 +109,7 @@ def _amended_private_tar(
         }
         all_paths = [
             m.name.removeprefix("./").strip("/")
-            for m in members
+            for m in members if m.name.removeprefix("./").strip("/") not in remove
         ] + list(additions) + list(replace)
         required_dirs: set[str] = set()
         for path in all_paths:
@@ -119,6 +119,7 @@ def _amended_private_tar(
         existing_dirs = {
             m.name.removeprefix("./").strip("/")
             for m in members if m.isdir()
+            and m.name.removeprefix("./").strip("/") not in remove
         }
         try:
             with GzipFile(fileobj=buffer, mode="wb", mtime=0) as compressed:

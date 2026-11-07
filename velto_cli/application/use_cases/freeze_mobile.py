@@ -66,6 +66,7 @@ class FreezeMobileUseCase:
             raise ValueError("Mobile entry_point must stay inside the project")
         if not init_only and not entry.is_file():
             raise FileNotFoundError(f"Mobile entry point not found: {entry}")
+        entry_point = entry.relative_to(root).as_posix()
         def resolve_wheel(value: str | None) -> Path | None:
             if not value:
                 return None

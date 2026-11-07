@@ -15,7 +15,19 @@ ALWAYS_EXCLUDED = frozenset({
     "settings/secrets.json",
     "src/sign/",
     "*.jks", "*.keystore", "*.p12", "*.pfx",
+    "*.pem", "*.key", "*.env",
+    ".gitignore", "*/.gitignore", ".gitkeep", "*/.gitkeep", ".DS_Store", "*/.DS_Store",
 })
+ANDROID_OUTPUT_DIRS = frozenset({"build", "deployment", "dist", "bin", "release"})
+ANDROID_TOOL_DIRS = frozenset({
+    ".git", ".venv", ".buildozer", ".pytest_cache", ".mypy_cache",
+    ".ruff_cache", ".tox", ".nox", "__pycache__",
+})
+ANDROID_BUILD_FILES = frozenset({
+    "buildozer.spec", "pysidedeploy.spec", "pyproject.toml", "poetry.lock",
+    "uv.lock", "pipfile", "pipfile.lock", "setup.py", "setup.cfg", "manifest.in",
+})
+ANDROID_ARTIFACT_SUFFIXES = frozenset({".apk", ".aab", ".pyc", ".pyo", ".whl"})
 _IGNORED_TREES = frozenset({
     ".git", ".buildozer", "build", ".venv", "venv", "__pycache__",
     ".pytest_cache", "node_modules",
@@ -77,11 +89,8 @@ def load_android_signing(root: Path) -> dict:
         raise ValueError(f"Cannot read {ANDROID_SIGN_CONFIG}: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(f"{ANDROID_SIGN_CONFIG} must be a JSON object")
-    # The sign command accepts the platform keys directly. Also recognize
-    # its older {"sign": {...}} wrapper to avoid breaking older projects.
-    data = data.get("sign", data)
-    if not isinstance(data, dict):
-        raise ValueError(f"{ANDROID_SIGN_CONFIG} sign must be an object")
+    if "sign" in data:
+        raise ValueError(f"{ANDROID_SIGN_CONFIG} must define android at the root level")
     android = data.get("android", {})
     if not isinstance(android, dict):
         raise ValueError(f"{ANDROID_SIGN_CONFIG} android must be an object")
@@ -118,6 +127,33 @@ def is_android_excluded(relative: str, patterns: tuple[str, ...]) -> bool:
     return False
 
 
+def is_android_project_payload(relative: str, patterns: tuple[str, ...]) -> bool:
+    """Whether a project file is application data, not build metadata."""
+    path = PurePosixPath(relative)
+    parts = path.parts
+    if not parts or parts[0].startswith(".") or any(part in ANDROID_TOOL_DIRS for part in parts[:-1]):
+        return False
+    if parts[0].lower() in ANDROID_OUTPUT_DIRS:
+        return False
+    name = path.name.lower()
+    if name in ANDROID_BUILD_FILES or name == "readme" or name.startswith("readme."):
+        return False
+    if len(parts) == 1 and (name == "license" or name.startswith("license.")):
+        return False
+    if path.suffix.lower() in ANDROID_ARTIFACT_SUFFIXES:
+        return False
+    return not is_android_excluded(relative, patterns)
+
+
+def is_android_project_directory(relative: str, patterns: tuple[str, ...]) -> bool:
+    parts = PurePosixPath(relative).parts
+    return bool(parts) and not (
+        parts[0].startswith(".") or any(part in ANDROID_TOOL_DIRS for part in parts)
+        or parts[0].lower() in ANDROID_OUTPUT_DIRS
+        or is_android_excluded(relative, patterns)
+    )
+
+
 def verify_android_exclusions(apk: Path, root: Path) -> None:
     """Reject any excluded project file in the final signed archive."""
     import io
@@ -132,9 +168,14 @@ def verify_android_exclusions(apk: Path, root: Path) -> None:
             forbidden = sorted(
                 member.name.removeprefix("./").strip("/")
                 for member in tar
-                if member.isfile() and is_android_excluded(
-                    member.name.removeprefix("./").strip("/"), patterns
-                )
+                if (member.name.removeprefix("./").strip("/")
+                    and member.name.removeprefix("./").strip("/") not in {
+                        ".velto", ".velto/resources.pak", ".velto/runtime.so",
+                    }
+                    and not (is_android_project_directory if member.isdir()
+                             else is_android_project_payload)(
+                                 member.name.removeprefix("./").strip("/"), patterns
+                             ))
             )
     if forbidden:
         raise RuntimeError(

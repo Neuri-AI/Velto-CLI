@@ -6,7 +6,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from velto_cli.adapters.mobile.qt_android_archive import QtAndroidWheelArchive
+from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 
 
 _VERSION = "6.12.0"
@@ -41,7 +41,7 @@ def test_public_archive_download_and_reuse_cache(tmp_path, monkeypatch):
         return BytesIO(body.encode())
 
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt_android_archive.urlopen", fake_urlopen
+        "velto_cli.adapters.mobile.qt.wheel_archive.urlopen", fake_urlopen
     )
     archive = QtAndroidWheelArchive()
     pyside, shiboken = archive.resolve(_VERSION, _ARCH, tmp_path)
@@ -61,7 +61,7 @@ def test_public_archive_rejects_wrong_architecture(tmp_path, monkeypatch):
             b'<a href="pyside6-6.12.0-6.12.0-cp310-abi3-android_x86_64.whl">wrong</a>'
         )
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt_android_archive.urlopen", fake_urlopen
+        "velto_cli.adapters.mobile.qt.wheel_archive.urlopen", fake_urlopen
     )
     with pytest.raises(RuntimeError, match="No official open-source"):
         QtAndroidWheelArchive().resolve(_VERSION, _ARCH, tmp_path)
@@ -73,7 +73,7 @@ def test_public_archive_rejects_corrupt_download(tmp_path, monkeypatch):
             return BytesIO(f'<a href="{_PYSIDE}">wheel</a>'.encode())
         return BytesIO(b"not a valid wheel archive")
     monkeypatch.setattr(
-        "velto_cli.adapters.mobile.qt_android_archive.urlopen", fake_urlopen
+        "velto_cli.adapters.mobile.qt.wheel_archive.urlopen", fake_urlopen
     )
     with pytest.raises(RuntimeError, match="invalid wheel archive"):
         QtAndroidWheelArchive().resolve(_VERSION, _ARCH, tmp_path)

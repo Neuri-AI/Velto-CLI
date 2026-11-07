@@ -61,6 +61,7 @@ def test_android_extension_links_math_library(tmp_path, monkeypatch):
         [("module.py", tmp_path / "module.py", destination)],
         apk=apk, toolchain_root=tmp_path, obfuscate=False,
     )
+    assert "annotation_typing=False" in commands[0]
     assert "-lm" in commands[1]
     assert commands[1].index("-lm") > commands[1].index("-lpython3.14")
 
@@ -170,7 +171,6 @@ def test_target_header_cache_persists_without_moving_originals(
     assert (result[0] / "Python.h").read_text() == "target header"
     assert (include / "Python.h").read_text() == "target header"
     assert android_cython._cached_headers(key) == result
-    assert android_cython.has_cached_target_headers()
 
 
 def test_target_header_cache_separates_distinct_android_libpython(tmp_path, monkeypatch):

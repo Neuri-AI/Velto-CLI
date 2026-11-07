@@ -1,5 +1,6 @@
 """Kivy Android Buildozer deployment."""
 import re
+from velto_cli.adapters.mobile.common.android_entrypoint import android_entrypoint
 from velto_cli.adapters.mobile.common.android_icons import (
     configured_kivy_android_icon,
     select_android_project_icon,
@@ -35,8 +36,6 @@ class KivyAndroidBuilder:
                 "Missing buildozer.spec. Run 'velto build --target android "
                 "--init-spec', then review requirements and package.domain."
             )
-        if request.entry_point != "main.py":
-            raise ValueError("Buildozer expects main.py at the project root")
         command = self._command("buildozer")
         icon = select_android_project_icon(root)
         if icon is not None:
@@ -50,7 +49,7 @@ class KivyAndroidBuilder:
                 "resources/mac/icons or resources/base/icons; "
                 "keeping the Android toolchain default."
             )
-        with configured_kivy_android_icon(spec, icon):
+        with android_entrypoint(root, request.entry_point), configured_kivy_android_icon(spec, icon):
             self._run(
                 [command, "android", "debug" if request.debug else "release"],
                 root,

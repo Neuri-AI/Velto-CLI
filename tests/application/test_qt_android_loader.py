@@ -104,3 +104,16 @@ def test_loader_repair_does_not_touch_unrelated_artifact(tmp_path):
         artifact, debug=True
     ) is False
     runner.run.assert_not_called()
+
+
+def test_loader_adds_missing_main_when_native_library_exists(tmp_path):
+    dist, resources, _, artifact = generated_distribution(
+        tmp_path, entry="arm64-v8a;libshiboken6.abi3.so"
+    )
+    runner = Mock()
+    runner.run.return_value = 0
+    assert MobileToolchainFreezer(runner)._repair_qt_android_loader(artifact, debug=True)
+    root = ET.parse(resources).getroot()
+    assert "arm64-v8a;libmain_arm64-v8a.so" in [
+        item.text for item in root.find("./array[@name='load_local_libs']")
+    ]

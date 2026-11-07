@@ -104,14 +104,11 @@ def test_svg_apk_verification_checks_private_bundle(tmp_path):
     verify_android_svg_apk(apk)
 
 
-def test_legacy_invalid_imageformats_spec_is_repaired(tmp_path):
+def test_invalid_imageformats_plugin_is_rejected(tmp_path):
     spec = tmp_path / "pysidedeploy.spec"
     spec.write_text(
         "[qt]\nmodules = Core,Gui,Widgets,Svg\n"
         "[android]\nplugins = platforms,imageformats\n"
     )
-    assert configure_android_svg_spec(spec)
-    parser = configparser.ConfigParser()
-    parser.read(spec)
-    assert parser["android"]["plugins"] == "platforms,imageformats_qsvg"
-    assert not configure_android_svg_spec(spec)
+    with pytest.raises(ValueError, match="imageformats_qsvg"):
+        configure_android_svg_spec(spec)

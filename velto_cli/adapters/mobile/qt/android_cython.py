@@ -87,21 +87,6 @@ def _target_header_cache() -> Path:
     return Path.home() / ".velto/mobile/android/qt/target-python-headers"
 
 
-def has_cached_target_headers() -> bool:
-    """Used only to decide whether p4a must rebuild its Python recipe."""
-    base = _target_header_cache()
-    if not base.is_dir():
-        return False
-    return any(
-        (child / "include/Python.h").is_file()
-        and (
-            (child / "include/pyconfig.h").is_file()
-            or (child / "config/pyconfig.h").is_file()
-        )
-        for child in base.iterdir() if child.is_dir()
-    )
-
-
 def _cached_headers(libpython_hash: str) -> list[Path] | None:
     base = _target_header_cache() / libpython_hash
     include, config = base / "include", base / "config"
@@ -354,6 +339,7 @@ def compile_android_extensions(
                 cfile = link / f"module_{index}.c"
                 _run([
                     str(cython_python), "-m", "cython", "-3",
+                    "-X", "annotation_typing=False",
                     "--module-name", mod,
                     *(["--no-docstrings"] if obfuscate else []),
                     "-o", str(cfile), str(source),

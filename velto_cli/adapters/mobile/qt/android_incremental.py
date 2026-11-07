@@ -7,6 +7,8 @@ pyside6-android-deploy path. No direct manipulation of installed app data.
 from __future__ import annotations
 
 import hashlib
+import ast
+import configparser
 from importlib import metadata
 import json
 import os
@@ -23,25 +25,23 @@ import tarfile
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
 from velto_cli.adapters.mobile.qt.android_build_inputs import android_root_inspection_dirs
 from velto_cli.adapters.mobile.qt.android_build_config import (
-    android_exclusion_patterns, is_android_excluded, verify_android_exclusions,
+    ANDROID_BUILD_FILES, ANDROID_TOOL_DIRS, android_exclusion_patterns, is_android_excluded,
+    is_android_project_directory, is_android_project_payload, verify_android_exclusions,
 )
 from velto_cli.adapters.mobile.qt.android_final_apk import (
     finalize_copied_debug_apk, android_private_version_marker,
 )
 from velto_cli.adapters.mobile.qt.android_sources import (
-    PACKAGES, _project_runtime_assets, _source_package,
+    PACKAGES, _project_runtime_assets,
     verify_qt_android_runtime_assets, verify_velto_apk_sources,
 )
 from velto_cli.adapters.mobile.qt.android_svg import (
     project_uses_svg, verify_android_svg_apk,
 )
+from velto_cli.adapters.mobile.qt.android_release import android_protected_resource_prefixes
 
-_FORMAT = 1
-_SKIP = {
-    ".git", ".venv", "venv", "__pycache__", ".pytest_cache",
-    ".buildozer", "build", ".idea", ".mypy_cache", ".ruff_cache",
-    "node_modules",
-}
+_FORMAT = 3
+_ROOT_OUTPUT_DIRS = {"build", "dist", "bin", "release"}
 _OUTPUT_SUFFIXES = {".apk", ".aab", ".pyc", ".pyo"}
 
 
@@ -66,29 +66,27 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
     sources: dict[str, Path] = {}
     native: dict[str, str] = {}
     assets = _project_runtime_assets(root)
+    protected_resource_prefixes = android_protected_resource_prefixes(root)
     exclusions = android_exclusion_patterns(root)
     ignored_root_dirs = {entry.name for entry in android_root_inspection_dirs(root)}
     for base, dirs, names in os.walk(root, followlinks=False):
         parent = Path(base)
-        for directory in dirs:
+        kept = []
+        for directory in sorted(dirs):
+            rel = (parent / directory).relative_to(root).as_posix()
+            if (directory in ANDROID_TOOL_DIRS or (parent == root and directory.startswith('.'))
+                    or is_android_excluded(rel, exclusions)
+                    or (parent == root and directory.lower() in _ROOT_OUTPUT_DIRS)
+                    or (parent == root and directory in ignored_root_dirs)):
+                continue
             if (parent / directory).is_symlink():
-                raise RuntimeError(
-                    "Android incremental mode cannot certify symlink directory: "
-                    + str(parent / directory)
-                )
-        dirs[:] = sorted(
-            d for d in dirs
-            if d not in _SKIP
-            and not is_android_excluded(
-                (parent / d).relative_to(root).as_posix(), exclusions
-            )
-            and (parent != root or d not in ignored_root_dirs)
-            and not (parent / d).is_symlink()
-        )
+                raise RuntimeError("Android incremental mode cannot certify symlink directory: " + str(parent / directory))
+            kept.append(directory)
+        dirs[:] = kept
         for name in sorted(names):
             item = parent / name
             rel = item.relative_to(root).as_posix()
-            if is_android_excluded(rel, exclusions):
+            if (parent == root and name.startswith(".")) or is_android_excluded(rel, exclusions):
                 continue
             if item.is_symlink():
                 # A symlink could reach outside the build tree; no incremental
@@ -99,48 +97,65 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
                 )
             if not item.is_file() or item.suffix.lower() in _OUTPUT_SUFFIXES:
                 continue
-            if rel in assets or item.suffix.lower() == ".py":
-                sources[rel] = item
-            else:
+            if rel in assets and not rel.startswith(protected_resource_prefixes):
+                if item.suffix.lower() in {".so", ".a", ".o", ".dll", ".dylib", ".pyd", ".jar", ".aar", ".class"}:
+                    native[rel] = _sha_file(item)
+                else:
+                    sources[rel] = item
+            elif ((parent == root and item.name.lower() in ANDROID_BUILD_FILES)
+                  or rel.startswith("deployment/")):
                 native[rel] = _sha_file(item)
-    # Source framework packages are temporarily staged by the normal build
-    # procedure, but not by the fast path. Include their installed contents.
-    # All native binaries are excluded by staging, so changing them requires
-    # a full build through the package/toolchain key below.
-    for package in PACKAGES:
-        location = _source_package(package)
-        for item in sorted(location.rglob("*")):
-            if (not item.is_file() or item.is_symlink()
-                    or any(p in _SKIP for p in item.relative_to(location).parts)):
-                continue
-            rel = f"{package}/{item.relative_to(location).as_posix()}"
-            if item.suffix.lower() == ".py":
-                if rel in sources:
-                    raise RuntimeError("Ambiguous Android Python source: " + rel)
-                sources[rel] = item
-                # Changes to the native Qt adapter might require a new Qt
-                # image format, Java bridge or library. Favor correctness.
-                if rel.startswith("psx/renderers/qt/"):
-                    native[f"qt-adapter:{rel}"] = _sha_file(item)
-            elif item.suffix.lower() in (".so", ".dylib", ".pyd", ".dll"):
-                native[f"installed:{rel}"] = _sha_file(item)
+    # android.json controls source protection and which project files are
+    # shipped.  It does not change the already-built Qt/Python runtime:
+    # protection is handled before selecting this debug fast path, and file
+    # exclusions are checked against the resulting private archive below.
+    # Likewise sign.json is relevant only to release APKs (which never use
+    # this cache).  Hashing either here made harmless settings edits trigger
+    # a complete p4a/Gradle build.
+    spec = root / "pysidedeploy.spec"
+    if spec.is_file():
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(spec, encoding="utf-8")
+        for key in ("wheel_pyside", "wheel_shiboken"):
+            wheel = config.get("android", key, fallback="").strip()
+            if wheel:
+                path = Path(wheel).expanduser()
+                if not path.is_absolute():
+                    path = root / path
+                if not path.is_file():
+                    raise RuntimeError(f"Android wheel is unavailable: {path}")
+                native[f"configured-wheel:{key}"] = _sha_file(path)
     keystore = Path.home() / ".android/debug.keystore"
     native["debug-signing-key"] = (
         _sha_file(keystore) if keystore.is_file() else "<not-created>"
     )
     file_hashes = {name: _sha_file(path) for name, path in sorted(sources.items())}
     # Adding an explicit Qt module import is a native dependency change, not
-    # merely a source edit. Dynamic imports remain covered conservatively by
-    # the native Qt adapter fingerprint above.
+    # merely a source edit.
     qt_imports: set[str] = set()
-    qt_ref = re.compile(r"\\b(?:PySide6|PyQt6|PySide2|PyQt5)\\.(Qt[A-Za-z0-9_]+)")
+    qt_ref = re.compile(r"\b(?:PySide6|PyQt6|PySide2|PyQt5)\.(Qt[A-Za-z0-9_]+)")
     for path in sources.values():
         if path.suffix.lower() == ".py":
             try:
-                qt_imports.update(qt_ref.findall(path.read_text(encoding="utf-8")))
-            except UnicodeError:
-                raise RuntimeError(f"Invalid Android Python source encoding: {path}")
+                source = path.read_text(encoding="utf-8")
+                qt_imports.update(qt_ref.findall(source))
+                tree = ast.parse(source, filename=str(path))
+                for node in ast.walk(tree):
+                    if (isinstance(node, ast.ImportFrom)
+                            and node.module in {"PySide6", "PyQt6", "PySide2", "PyQt5"}):
+                        qt_imports.update(alias.name for alias in node.names
+                                          if alias.name.startswith("Qt"))
+            except (UnicodeError, SyntaxError) as exc:
+                raise RuntimeError(f"Cannot inspect Android Python source: {path}") from exc
     native["qt-required-modules"] = ",".join(sorted(qt_imports))
+    qml_imports: set[str] = set()
+    for path in sources.values():
+        if path.suffix.lower() == ".qml":
+            try:
+                qml_imports.update(re.findall(r"(?m)^\s*import\s+([A-Za-z_][\w.]*)", path.read_text(encoding="utf-8")))
+            except UnicodeError as exc:
+                raise RuntimeError(f"Cannot inspect QML source: {path}") from exc
+    native["qml-required-modules"] = ",".join(sorted(qml_imports))
     versions: dict[str, str] = {}
     for package in ("PySide6", "shiboken6", "buildozer", "python-for-android",
                     "velto-cli", "velto-core", "qyro-engine", "velto-cinnamon-core"):
@@ -148,27 +163,21 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
             versions[package] = metadata.version(package)
         except metadata.PackageNotFoundError:
             versions[package] = "<absent>"
-    # Include the source package paths as well, since a venv switch can have
-    # identical distribution versions and different native installations.
-    installed = {
-        package: str(_source_package(package)) for package in PACKAGES
-    }
     key_material = json.dumps({
         "files": native,
         "versions": versions,
-        "paths": installed,
         "python": sys.version,
         "platform": sys.platform,
+        "android_entrypoint": _sha_file(
+            Path(__file__).parent.parent / "common" / "android_entrypoint.py"
+        ),
         "svg": project_uses_svg(root),
-        "packager_implementation": {
-            name: _sha_file(Path(__file__).with_name(name))
-            for name in (
-                "android_incremental.py", "android_final_apk.py",
-                "android_sources.py", "android.py",
-                "android_svg.py", "android_build_inputs.py",
-                "android_build_config.py",
-            )
-        },
+        # This deliberately contains only inputs that affect the executable
+        # Android runtime.  The implementation of the Velto packager is not
+        # one of them: changing this module must improve how an existing APK
+        # is patched, not force Gradle/p4a to rebuild a byte-identical
+        # runtime.  The archive, ABI, wheel, Qt/QML-import and Android-config
+        # checks below remain the safety boundary for cache reuse.
         "format": _FORMAT,
     }, sort_keys=True).encode("utf-8")
     return sources, file_hashes, hashlib.sha256(key_material).hexdigest()
@@ -217,6 +226,18 @@ def _cache_manifest(cache: Path) -> dict[str, Any] | None:
         return None
 
 
+def incremental_cache_miss_reason(root: Path) -> str:
+    """Explain a fallback without reading or modifying cached artifacts."""
+    path = _cache_root(root) / "manifest.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return "No hay una caché incremental válida; se necesita una compilación completa."
+    if not isinstance(data, dict) or data.get("format") != _FORMAT:
+        return "La caché incremental es de una versión anterior; se necesita una compilación completa para renovarla."
+    return "La caché incremental no coincide con la configuración o el APK actual; se necesita una compilación completa."
+
+
 def _archive_files(apk: Path) -> set[str]:
     with ZipFile(apk) as binary:
         names = [n for n in ("assets/private.tar", "assets/private.mp3")
@@ -228,6 +249,42 @@ def _archive_files(apk: Path) -> set[str]:
                 m.name.removeprefix("./").strip("/")
                 for m in tar if m.isfile()
             }
+
+
+def _archive_build_only_entries(apk: Path, exclusions: tuple[str, ...]) -> set[str]:
+    with ZipFile(apk) as binary:
+        private = next(name for name in ("assets/private.tar", "assets/private.mp3")
+                       if name in binary.namelist())
+        with tarfile.open(fileobj=io.BytesIO(binary.read(private)), mode="r:*") as tar:
+            return {
+                name for member in tar
+                if (name := member.name.removeprefix("./").strip("/"))
+                and not (is_android_project_directory if member.isdir()
+                         else is_android_project_payload)(name, exclusions)
+            }
+
+
+def _archive_project_hashes(apk: Path, paths: set[str]) -> dict[str, str]:
+    """Hash actual cached files instead of trusting possibly stale metadata."""
+    with ZipFile(apk) as binary:
+        private = next(name for name in ("assets/private.tar", "assets/private.mp3")
+                       if name in binary.namelist())
+        with tarfile.open(fileobj=io.BytesIO(binary.read(private)), mode="r:*") as tar:
+            hashes: dict[str, str] = {}
+            for member in tar:
+                name = member.name.removeprefix("./").strip("/")
+                if not member.isfile() or name not in paths:
+                    continue
+                if name in hashes:
+                    raise RuntimeError(f"Cached Android APK contains duplicate project file: {name}")
+                source = tar.extractfile(member)
+                if source is None:
+                    raise RuntimeError(f"Cannot read cached Android project file: {name}")
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                hashes[name] = digest.hexdigest()
+            return hashes
 
 
 def _store(cache: Path, apk: Path, hashes: dict[str, str], native: str) -> None:
@@ -256,26 +313,43 @@ def _is_debug_apk(apk: Path) -> bool:
     return apk.suffix.lower() == ".apk" and "debug" in apk.stem.lower()
 
 
-def record_full_build(root: Path, apk: Path, request: Any) -> None:
+def record_full_build(root: Path, apk: Path, request: Any,
+                      baseline: tuple[dict[str, str], str] | None = None) -> bool:
     """Seed the fast path only from a successfully produced debug APK."""
     if not apk.is_file() or not _is_debug_apk(apk):
-        return
+        return False
     sources, hashes, native = _scan(root)
+    if baseline is not None and baseline != (hashes, native):
+        return False
     contents = _archive_files(apk)
+    if any(name.startswith(tuple(package + "/" for package in PACKAGES))
+           and name not in sources for name in contents):
+        return False
+    verify_velto_apk_sources(apk, root)
     exclusions = android_exclusion_patterns(root)
     if any(is_android_excluded(name, exclusions) for name in contents):
-        return
+        return False
     if not set(sources).issubset(contents):
         # Do not trust an artifact that cannot represent the next source diff.
-        return
+        return False
     with ZipFile(apk) as signed:
         if ("resources.arsc" not in signed.namelist()
                 or android_private_version_marker(
                     signed.read("resources.arsc")) is None):
             # Refuse incremental packaging unless p4a extraction invalidation
             # can be updated safely in the compiled Android resources.
-            return
+            return False
+        private = next(name for name in ("assets/private.tar", "assets/private.mp3")
+                       if name in signed.namelist())
+        with tarfile.open(fileobj=io.BytesIO(signed.read(private)), mode="r:*") as tar:
+            members = {member.name.removeprefix("./").strip("/"): member
+                       for member in tar if member.isfile()}
+            for name, digest in hashes.items():
+                payload = tar.extractfile(members[name])
+                if payload is None or hashlib.sha256(payload.read()).hexdigest() != digest:
+                    return False
     _store(_cache_root(root), apk, hashes, native + _request_key(request))
+    return True
 
 
 def try_incremental_build(root: Path, request: Any) -> Path | None:
@@ -299,20 +373,27 @@ def try_incremental_build(root: Path, request: Any) -> Path | None:
         return None
     old = meta["files"]
     additions = set(hashes) - set(old)
-    deletions = set(old) - set(hashes)
-    changed = {
-        name for name in set(hashes) & set(old)
-        if hashes[name] != old[name]
-    }
-    changed.update(additions)
     # Refuse to delete or replace anything not owned by the previous
     # recorded snapshot; never remove standard p4a files or Qt libraries.
     packaged = _archive_files(previous)
+    packaged_hashes = _archive_project_hashes(previous, set(hashes))
+    changed = {name for name, digest in hashes.items()
+               if packaged_hashes.get(name) != digest}
+    deletions = (set(old) - set(hashes)) & packaged
     # Never reuse an APK whose base already contains excluded host-only data.
     exclusions = android_exclusion_patterns(root)
-    if any(is_android_excluded(name, exclusions) for name in packaged):
-        return None
-    if (set(old) - packaged) or (additions & packaged):
+    # Older APKs may include build-only files. Strip those from the app data
+    # when updating, rather than carrying deployment/ or project metadata
+    # into every incremental APK.
+    build_only = _archive_build_only_entries(previous, exclusions)
+    deletions.update(build_only)
+    # A full Buildozer APK may already contain project files that an older
+    # source manifest did not track. They are safe to replace by path, but
+    # p4a's own bootstrap/environment files must never be overwritten.
+    reserved = {"main.py", "p4a_env_vars.txt", "private.version", "libpybundle.version"}
+    collisions = additions & (packaged - build_only)
+    if (collisions & reserved
+            or any(name.startswith("_python_bundle/") for name in collisions)):
         return None
     with ZipFile(previous) as apk:
         if "resources.arsc" not in apk.namelist():
@@ -351,10 +432,10 @@ def try_incremental_build(root: Path, request: Any) -> Path | None:
                     if member is None or hashlib.sha256(member.read()).hexdigest() != hashes[name]:
                         raise RuntimeError("Incremental APK has stale Python/resource: " + name)
                 if deletions and deletions & {
-                    m.name.removeprefix("./").strip("/") for m in tar if m.isfile()
+                    m.name.removeprefix("./").strip("/") for m in tar
                 }:
                     raise RuntimeError("Incremental APK retains deleted resources")
-        verify_velto_apk_sources(artifact)
+        verify_velto_apk_sources(artifact, root)
         verify_qt_android_runtime_assets(artifact, root)
         if project_uses_svg(root):
             verify_android_svg_apk(artifact)

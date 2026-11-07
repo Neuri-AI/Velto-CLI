@@ -1,5 +1,6 @@
 """PySide6 Android wheel resolution, Qt Java bootstrap, and APK packaging."""
 import shutil
+import sys
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
@@ -7,10 +8,10 @@ import xml.etree.ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
 from velto_cli.adapters.mobile.common.android_icons import select_android_project_icon
+from velto_cli.adapters.mobile.common.android_entrypoint import android_entrypoint
 from velto_cli.adapters.mobile.qt.android_final_apk import finalize_copied_debug_apk
 from velto_cli.adapters.mobile.qt.android_release import (
-    _release_credentials, protect_android_apk, protect_android_release_apk,
-    verify_android_release_source_protection,
+    _release_credentials, android_resource_protection_enabled, protect_android_apk,
 )
 from velto_cli.adapters.mobile.qt.android_build_inputs import (
     isolate_previous_android_build_outputs, staged_android_project,
@@ -19,7 +20,7 @@ from velto_cli.adapters.mobile.qt.android_build_config import (
     verify_android_exclusions, load_android_build_config,
 )
 from velto_cli.adapters.mobile.qt.android_incremental import (
-    try_incremental_build, record_full_build,
+    try_incremental_build, record_full_build, incremental_cache_miss_reason, _scan,
 )
 from velto_cli.adapters.mobile.qt.android_svg import (
     project_uses_svg, assert_android_svg_wheel, configure_android_svg_spec,
@@ -27,7 +28,7 @@ from velto_cli.adapters.mobile.qt.android_svg import (
 )
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 from velto_cli.adapters.mobile.qt.android_sources import (
-    uses_velto, staged_velto_sources, verify_velto_apk_sources,
+    project_uses_velto, verify_velto_apk_sources,
     complete_qt_android_private_assets, verify_qt_android_runtime_assets,
     _gradle_directory, _gradle_command,
 )
@@ -264,7 +265,18 @@ class QtAndroidBuilder:
         correct = "arm64-v8a;libmain_arm64-v8a.so"
         matches = [item for item in items if (item.text or "").strip() == wrong]
         if not matches:
-            return False
+            if any((item.text or "").strip() == correct for item in items):
+                return False
+            native_lib = distribution / "libs" / "arm64-v8a" / "libmain_arm64-v8a.so"
+            if not native_lib.is_file():
+                return False
+            item = ET.SubElement(loader_arrays[0], "item")
+            item.text = correct
+            tree.write(resources, encoding="utf-8", xml_declaration=True)
+            self._warning("QtLoader omitted its main library; repaired the generated loader list.")
+            self._run([str(distribution / "gradlew"),
+                       "assembleDebug" if debug else "bundleRelease"], distribution)
+            return True
         if len(matches) != 1 or any(
             (item.text or "").strip() == correct for item in items
         ):
@@ -436,15 +448,11 @@ class QtAndroidBuilder:
                 changed = True
         return changed
 
-    @staticmethod
-    def _requires_velto_runtime(entry: Path) -> bool:
-        return uses_velto(entry)
-
     def _verify_qt_android_velto_bundle(
-        self, artifact: Path, *, entry: Path
+        self, artifact: Path, *, entry: Path, project_root: Path | None = None
     ) -> None:
-        if uses_velto(entry):
-            verify_velto_apk_sources(artifact)
+        if project_uses_velto(project_root or entry.parent, entry):
+            verify_velto_apk_sources(artifact, project_root)
 
     @staticmethod
     def _qt_gradle_artifact(
@@ -482,32 +490,36 @@ class QtAndroidBuilder:
         """Build normally for native changes; re-sign the APK for source-only changes."""
         enabled = (
             not request.init_only
-            and uses_velto(request.project_root / request.entry_point)
+            and project_uses_velto(request.project_root, request.project_root / request.entry_point)
         )
-        # The incremental cache is an opt-out implementation detail of debug
-        # builds, never an alternate public API. It runs BEFORE transient
-        # framework packages are staged into the project tree.
-        if enabled and request.debug and not request.clean and not request.protect_source:
+        # A user-owned main.py must share the generated launcher path. Do not
+        # incrementally replace that combined file with the original source.
+        launcher_conflict = (request.entry_point != "main.py"
+                             and (request.project_root / "main.py").exists())
+        resources_protected = android_resource_protection_enabled(request.project_root)
+        # A protected APK contains compiled application modules, so only
+        # unprotected debug builds can safely replace source files in-place.
+        if (enabled and request.debug and not request.clean and not request.protect_source
+                and not launcher_conflict):
             try:
                 quick = try_incremental_build(request.project_root, request)
             except Exception as exc:
-                # Corrupt cache or unpatchable debug APK must not block a
-                # normal PySide6 build or leave partially written artifacts.
-                self._warning(
-                    "Android incremental reuse unavailable; using full "
-                    f"deployment: {exc}"
-                )
+                self._warning(f"Android incremental reuse unavailable; using full deployment: {exc}")
                 quick = None
             if quick is not None:
-                if request.protect_source:
-                    # The incremental cache is deliberately kept unprotected.
-                    # Transform only the independently published artifact.
-                    protect_android_apk(quick, request.project_root, debug=True)
-                    self._notice("Protected Android debug APK signed and verified.")
+                if resources_protected:
+                    protect_android_apk(
+                        quick, request.project_root, debug=True,
+                        toolchain_root=request.project_root,
+                        entry_point=request.entry_point, protect_source=False,
+                        protect_resources=True,
+                    )
+                    # Store the sealed artifact, never the transient archive
+                    # where incremental patching temporarily restored assets.
+                    record_full_build(request.project_root, quick, request)
                 self._notice("Reused Android runtime; updated signed APK.")
-                return MobileBuildArtifact(
-                    quick, request.target, request.framework, "apk",
-                )
+                return MobileBuildArtifact(quick, request.target, request.framework, "apk")
+            self._notice(incremental_cache_miss_reason(request.project_root))
         if enabled and not request.debug and not request.init_only:
             # Validate release signing before downloading Qt wheels or running
             # Buildozer. Never spend a full compile on an unsignable APK.
@@ -515,12 +527,21 @@ class QtAndroidBuilder:
         if request.init_only:
             # --init-spec creates the developer-owned specification; it is not
             # an APK compilation and must write to the actual project.
-            return self._pyside_android_impl(request)
+            with android_entrypoint(request.project_root, request.entry_point):
+                return self._pyside_android_impl(request)
+        cache_snapshot = None
+        if (enabled and request.debug and not request.protect_source
+                and not launcher_conflict):
+            try:
+                _, hashes, native = _scan(request.project_root)
+                cache_snapshot = (hashes, native)
+            except (OSError, RuntimeError, ValueError) as exc:
+                self._warning(f"Android incremental cache unavailable: {exc}")
         # Work exclusively inside a disposable, filtered project mirror.
         # The original app (including excluded settings) is never moved.
         with staged_android_project(request.project_root) as stage:
             staged_request = replace(request, project_root=stage)
-            with staged_velto_sources(stage, enabled=enabled):
+            with android_entrypoint(stage, request.entry_point):
                 built = self._pyside_android_impl(staged_request)
             if built is None:
                 return None
@@ -529,32 +550,40 @@ class QtAndroidBuilder:
             # Verify the stage against ORIGINAL host-only exclusions, not
             # against the filtered stage's absent android.json/sign.json.
             verify_android_exclusions(built.path, request.project_root)
-            if enabled and request.debug and not request.protect_source:
-                # Cache is only used for explicitly unprotected builds.
-                try:
-                    record_full_build(request.project_root, built.path, request)
-                except (OSError, RuntimeError, ValueError) as exc:
-                    self._warning(f"Android incremental cache unavailable: {exc}")
             if request.protect_source and request.debug:
                 protect_android_apk(
                     built.path, request.project_root, debug=True,
                     toolchain_root=stage,
+                    entry_point=request.entry_point,
                     obfuscate=load_android_build_config(
                         request.project_root
                     ).get("obfuscate", False),
+                    protect_resources=resources_protected,
                 )
                 self._notice("Cython Android debug extensions signed and verified.")
             elif not request.debug:
-                protect_android_release_apk(
-                    built.path, request.project_root, toolchain_root=stage,
+                protect_android_apk(
+                    built.path, request.project_root, debug=False, toolchain_root=stage,
+                    entry_point=request.entry_point,
                     obfuscate=load_android_build_config(
                         request.project_root
                     ).get("obfuscate", False),
-                )
-                verify_android_release_source_protection(
-                    built.path, request.project_root
+                    protect_resources=resources_protected,
                 )
                 self._notice("Cython Android release extensions verified and APK signed.")
+            elif resources_protected:
+                protect_android_apk(
+                    built.path, request.project_root, debug=True, toolchain_root=stage,
+                    entry_point=request.entry_point, protect_source=False,
+                    protect_resources=True,
+                )
+                self._notice("Android protected resources encrypted and verified.")
+            if cache_snapshot is not None:
+                try:
+                    if not record_full_build(request.project_root, built.path, request, cache_snapshot):
+                        self._warning("No se pudo guardar la caché incremental: el proyecto cambió durante la compilación o no coincide con el APK.")
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self._warning(f"Android incremental cache unavailable: {exc}")
             verify_android_exclusions(built.path, request.project_root)
             output = request.project_root / "build" / "android" / "qt" / built.path.name
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -574,9 +603,6 @@ class QtAndroidBuilder:
         self, request: MobileFreezeRequest
     ) -> MobileBuildArtifact | None:
         root = request.project_root
-        if request.entry_point != "main.py":
-            raise ValueError("PySide6 Android deployment requires root main.py")
-
         spec = root / "pysidedeploy.spec"
         if request.init_only and spec.exists():
             raise FileExistsError(f"Refusing to overwrite {spec}")
@@ -605,10 +631,11 @@ class QtAndroidBuilder:
         if svg_required:
             assert_android_svg_wheel(wheel_pyside)
             configure_android_svg_spec(spec)
-        command = self._command("pyside6-android-deploy")
-        args = [command]
+        self._command("pyside6-android-deploy")
+        args = [sys.executable, str(Path(__file__).with_name("android_deploy_entry.py")),
+                "--velto-entry", request.entry_point]
         if request.init_only:
-            args.extend(["--init", "--name", request.app_name])
+            args.extend(["--init", "--name", request.app_name, "--keep-deployment-files"])
         else:
             args.extend(["--config-file", str(spec), "--force"])
             # Qt's static scan does not see imports made inside PSX's native
@@ -653,6 +680,8 @@ class QtAndroidBuilder:
                 raise RuntimeError(
                     "Qt Android deploy completed without generating pysidedeploy.spec."
                 )
+            if not (root / "buildozer.spec").is_file():
+                raise RuntimeError("Qt Android deploy did not generate buildozer.spec")
             return None
 
         try:
@@ -699,7 +728,7 @@ class QtAndroidBuilder:
             )
         else:
             self._warning("No project PNG launcher icon found; keeping Qt default.")
-        enabled = uses_velto(root / request.entry_point)
+        enabled = project_uses_velto(root, root / request.entry_point)
         if _gradle_directory(artifact) is None:
             if artifact.suffix.lower() != ".apk":
                 raise RuntimeError(
@@ -739,7 +768,7 @@ class QtAndroidBuilder:
                     root, artifact, debug=request.debug
                 )
         self._verify_qt_android_velto_bundle(
-            artifact, entry=root / request.entry_point
+            artifact, entry=root / request.entry_point, project_root=root
         )
         if enabled:
             verify_qt_android_runtime_assets(artifact, root)

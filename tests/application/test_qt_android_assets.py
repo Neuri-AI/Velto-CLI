@@ -96,3 +96,45 @@ def test_no_resources_means_no_gradle_rebuild(tmp_path):
     assert complete_qt_android_private_assets(
         tmp_path, apk, should_not_run, debug=True
     ) == ()
+
+
+def test_assets_include_arbitrary_project_paths_and_exclude_build_files(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_sources import _project_runtime_assets
+    for name in ("translations/es/messages.dat", "templates/page.html", "root.custom",
+                 "nested/build/image.dat", "site/.well-known/assetlinks.json", "components/new.py", "settings/base.json",
+                 "deployment/recipes/local.py", "build/output.dat", ".hidden/file.dat",
+                 "components/.gitkeep", "README.md", "pyproject.toml", "pysidedeploy.spec", "buildozer.spec"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("content")
+    assets = set(_project_runtime_assets(tmp_path))
+    assert {"translations/es/messages.dat", "templates/page.html", "root.custom",
+            "nested/build/image.dat", "site/.well-known/assetlinks.json", "components/new.py", "settings/base.json"} <= assets
+    assert not assets.intersection({"deployment/recipes/local.py", "build/output.dat",
+                                    ".hidden/file.dat", "components/.gitkeep", "README.md", "pyproject.toml",
+                                    "pysidedeploy.spec", "buildozer.spec"})
+
+
+def test_full_packaging_includes_arbitrary_files_without_build_inputs(tmp_path):
+    for name, payload in {
+        "translations/es/catalog.dat": b"translation",
+        "models/data.custom": b"model",
+        "components/new.py": b"VALUE = 1\n",
+        "deployment/recipes/local.py": b"build only",
+        "README.md": b"documentation",
+        "pyproject.toml": b"build metadata",
+        ".hidden/config": b"hidden",
+    }.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    gradle, private, apk = _android_project(tmp_path)
+    def rebuild(command, cwd):
+        assert cwd == gradle
+        _rebuild_from_tar(private, apk)
+    added = complete_qt_android_private_assets(tmp_path, apk, rebuild, debug=True)
+    assert set(added) == {"translations/es/catalog.dat", "models/data.custom", "components/new.py"}
+    with tarfile.open(private, mode="r:*") as archive:
+        names = {item.name for item in archive}
+    assert not {"deployment", "deployment/recipes/local.py", "README.md", "pyproject.toml", ".hidden/config"} & names
+    verify_qt_android_runtime_assets(apk, tmp_path)

@@ -1,47 +1,171 @@
 """Fail-closed source-minimized Android release APK finalization.
 
-This is bytecode packaging, NOT encryption or protection against decompilers.
-Only application-owned Python modules and the staged Velto runtime are
-transformed. Never rewrite python-for-android's interpreter/stdlib.
+The generated native extensions are not encryption or protection against
+decompilers.
+Only application-owned Python modules are transformed. Dependencies and
+python-for-android's interpreter and standard library are left untouched.
 """
 from __future__ import annotations
 
 import ast
 from dataclasses import fields, is_dataclass
 import hashlib
+import hmac
 import io
+import json
 import os
 import re
+import secrets
 from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import zipfile
 from zipfile import ZipFile
 
 from velto_cli.adapters.mobile.qt.android_final_apk import (
     _amended_private_tar, _android_sdk_tool, _debug_keystore,
     replace_android_private_version,
 )
-from velto_cli.adapters.mobile.qt.android_sources import PACKAGES
 from velto_cli.adapters.mobile.qt.android_cython import (
-    compile_android_extensions, output_name, _is_elf_arm64,
+    compile_android_extensions, module_name, output_name, _is_elf_arm64,
 )
 from velto_cli.adapters.mobile.qt.android_build_config import (
-    load_android_signing, verify_android_exclusions,
+    android_exclusion_patterns, is_android_excluded, load_android_signing,
+    verify_android_exclusions,
 )
+
+
+_RESOURCE_PACK_MAGIC = b"QYRPKG"
+_RESOURCE_SECRETS_PATH = ".velto/secrets.enc"
+
+
+def android_resource_protection_enabled(root: Path) -> bool:
+    """Read the same resource_protection declaration used by desktop builds."""
+    value = None
+    # Existing projects keep this manifest in settings/, while the desktop
+    # freezer also accepts a root build.json. The root file wins if both exist.
+    for path in (root / "settings" / "build.json", root / "build.json"):
+        if not path.exists():
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"{path.relative_to(root)} must be a regular file")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"Cannot read {path.relative_to(root)}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError(f"{path.relative_to(root)} must be a JSON object")
+        if "resource_protection" in data:
+            value = data["resource_protection"]
+    return bool(value.get("enabled", True)) if isinstance(value, dict) else bool(value)
+
+
+def android_protected_resource_prefixes(root: Path) -> tuple[str, ...]:
+    """Project paths moved into resources.pak instead of private.tar."""
+    if not android_resource_protection_enabled(root):
+        return ()
+    settings, resources = _resource_protection_config(root)
+    return tuple(path.relative_to(root.resolve()).as_posix().rstrip("/") + "/"
+                 for path in (settings, resources))
+
+
+def _resource_protection_config(root: Path) -> tuple[Path, Path]:
+    value: object = None
+    for path in (root / "settings" / "build.json", root / "build.json"):
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "resource_protection" in data:
+                value = data["resource_protection"]
+    if isinstance(value, dict):
+        settings = value.get("settings_dir", "settings")
+        resources = value.get("resources_dir", "resources")
+    else:
+        settings, resources = "settings", "resources"
+    if not isinstance(settings, str) or not isinstance(resources, str):
+        raise ValueError("resource_protection settings_dir/resources_dir must be strings")
+    paths = []
+    for item in (settings, resources):
+        candidate = (root / item).resolve()
+        if not candidate.is_relative_to(root.resolve()):
+            raise ValueError("resource_protection directories must stay inside the project")
+        paths.append(candidate)
+    return paths[0], paths[1]
+
+
+def _resource_keystream(seed: bytes, size: int) -> bytes:
+    blocks, index = [], 0
+    while sum(map(len, blocks)) < size:
+        blocks.append(hashlib.sha256(seed + index.to_bytes(8, "big")).digest())
+        index += 1
+    return b"".join(blocks)[:size]
+
+
+def _resource_xor(data: bytes, key: bytes, nonce: bytes) -> bytes:
+    output = bytearray(len(data))
+    for offset in range(0, len(data), 32):
+        stream = hashlib.sha256(key + nonce + (offset // 32).to_bytes(8, "big")).digest()
+        for index, value in enumerate(data[offset:offset + len(stream)]):
+            output[offset + index] = value ^ stream[index]
+    return bytes(output)
+
+
+def _prepare_android_resource_package(root: Path, directory: Path) -> tuple[Path, Path, Path, frozenset[str]]:
+    """Create desktop-compatible resources.pak and Android runtime source."""
+    directory.mkdir(parents=True, exist_ok=True)
+    settings_dir, resources_dir = _resource_protection_config(root)
+    patterns = android_exclusion_patterns(root)
+    entries: list[tuple[Path, str]] = []
+    remove: set[str] = set()
+    for base, prefix in ((settings_dir, "settings"), (resources_dir, "resources")):
+        if not base.is_dir():
+            continue
+        for source in sorted(base.rglob("*")):
+            if not source.is_file() or source.is_symlink():
+                continue
+            rel_project = source.relative_to(root).as_posix()
+            rel = source.relative_to(base).as_posix()
+            if prefix == "settings" and rel == "sign.json":
+                remove.add(f"{prefix}/{rel}")
+                continue
+            # secrets.json is excluded from private.tar, but belongs inside
+            # the encrypted/authenticated QYRPKG payload on Android.
+            if is_android_excluded(rel_project, patterns) and not (
+                prefix == "settings" and rel == "secrets.json"
+            ):
+                remove.add(f"{prefix}/{rel}")
+                continue
+            entries.append((source, f"{prefix}/{rel}"))
+            remove.add(f"{prefix}/{rel}")
+
+    runtime_secret = secrets.token_bytes(32)
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for source, name in entries:
+            archive.write(source, name)
+    if not entries:
+        raise RuntimeError("resource_protection is enabled but settings/ and resources/ are empty")
+    resource_key, salt, nonce = secrets.token_bytes(32), secrets.token_bytes(16), secrets.token_bytes(16)
+    plaintext = payload.getvalue()
+    ciphertext = _resource_xor(plaintext, resource_key, nonce)
+    tag = hmac.new(resource_key, nonce + ciphertext, hashlib.sha256).digest()
+    mask = _resource_keystream(hashlib.sha256(runtime_secret + salt).digest(), len(resource_key))
+    package = directory / "resources.pak"
+    package.write_bytes(_RESOURCE_PACK_MAGIC + salt + bytes(a ^ b for a, b in zip(resource_key, mask)) + nonce + tag + ciphertext)
+    source = directory / "runtime.py"
+    source.write_text(f'RUNTIME_SECRET_HEX = "{runtime_secret.hex()}"\n', encoding="utf-8")
+    return package, source, directory / "runtime.so", frozenset(remove)
 
 
 def _owned(name: str, root: Path) -> bool:
-    """Restrict transformation to known project paths and framework packages."""
+    """Restrict transformation to Python files owned by the project."""
     parts = PurePosixPath(name).parts
     if not parts or ".." in parts or parts[0].startswith("."):
         return False
     if len(parts) == 1:
         return name == "main.py" or (name.endswith(".py") and (root / name).is_file())
     first = parts[0]
-    if first in PACKAGES:
-        return True
     return (
         first not in {"build", ".buildozer", "deployment", "tests", "test"}
         and (root / first).is_dir()
@@ -49,64 +173,15 @@ def _owned(name: str, root: Path) -> bool:
     )
 
 
-def _prepare_cython_source(source: bytes, name: str) -> bytes:
+def _prepare_cython_source(source: bytes, name: str, *, entry_point: str = "main.py") -> bytes:
     """Compile project PSX markup lexically before Cython C translation."""
-    if name == "psx/renderers/kivy/scroll.py":
-        # Cython infers incompatible C tuple types for this Python conditional
-        # (float RGBA versus integer RGBA). Construct Python tuples explicitly
-        # in the temporary source, preserving the element values and types.
-        tree = ast.parse(source, filename=name)
-        class BoxColorTuples(ast.NodeTransformer):
-            changed = False
-
-            def visit_IfExp(self, node):
-                self.generic_visit(node)
-                if not (isinstance(node.body, ast.Tuple) and
-                        isinstance(node.orelse, ast.Tuple)):
-                    return node
-                def types(value):
-                    if not all(isinstance(item, ast.Constant) and
-                               type(item.value) in (int, float)
-                               for item in value.elts):
-                        return set()
-                    return {type(item.value) for item in value.elts}
-                if {frozenset(types(node.body)), frozenset(types(node.orelse))} != {
-                    frozenset({int}), frozenset({float}),
-                }:
-                    return node
-                self.changed = True
-                for attr in ("body", "orelse"):
-                    original = getattr(node, attr)
-                    wrapped = ast.Call(
-                        func=ast.Name(id="_velto_cython_tuple", ctx=ast.Load()),
-                        args=[ast.List(elts=original.elts, ctx=ast.Load())],
-                        keywords=[],
-                    )
-                    setattr(node, attr, ast.copy_location(wrapped, original))
-                return node
-
-        transformer = BoxColorTuples()
-        tree = transformer.visit(tree)
-        if transformer.changed:
-            index = 1 if (tree.body and isinstance(tree.body[0], ast.Expr)
-                          and isinstance(tree.body[0].value, ast.Constant)
-                          and isinstance(tree.body[0].value.value, str)) else 0
-            while (index < len(tree.body) and isinstance(tree.body[index], ast.ImportFrom)
-                   and tree.body[index].module == "__future__"):
-                index += 1
-            tree.body.insert(index, ast.ImportFrom(
-                module="builtins", names=[ast.alias(name="tuple", asname="_velto_cython_tuple")], level=0,
-            ))
-            return (ast.unparse(ast.fix_missing_locations(tree)) + "\n").encode("utf-8")
-    if name.startswith(tuple(package + "/" for package in PACKAGES)):
-        return source
     from psx.markup.transform import transform_source
     # precompiled=True also sets the decorator marker correctly after
     # __future__ imports, without depending on inspect at Android runtime.
     prepared = transform_source(
         source.decode("utf-8"), filename=name, precompiled=True,
     ).source
-    # Older PSX transformers mistakenly capture the stylesheet <link> tag
+    # The PSX transformer can mistakenly capture the stylesheet <link> tag
     # as a Python name. Keep actual {link} references and only remove the
     # spurious capture from templates that do not reference that name.
     from psx.markup.ast import Reference
@@ -154,7 +229,7 @@ def _prepare_cython_source(source: bytes, name: str) -> bytes:
     if stylesheet_templates:
         tree = ast.fix_missing_locations(RemoveSpuriousLink().visit(tree))
         prepared = ast.unparse(tree)
-    if name == "main.py":
+    if name == entry_point:
         # p4a requires an executable main.py loader. The protected extension
         # imports as module "main", so preserve the application's original
         # __main__ guard when its native extension is imported by the loader.
@@ -176,11 +251,19 @@ def _prepare_cython_source(source: bytes, name: str) -> bytes:
     return (prepared + "\n").encode("utf-8")
 
 
-def _bootstrap() -> bytes:
+def _bootstrap(entry_point: str = "main.py") -> bytes:
     # The sole readable Python application entry required by p4a.
     # importlib prefers the compiled main.so extension over this source when
     # importing the same module name from the private application directory.
-    return b"import importlib\nimportlib.import_module('main')\n"
+    module = module_name(entry_point)
+    parent = PurePosixPath(entry_point).parent
+    if str(parent) == ".":
+        return f"import importlib\nimportlib.import_module({module!r})\n".encode("utf-8")
+    return (
+        "import importlib\nimport sys\nfrom pathlib import Path\n"
+        f"sys.path.insert(0, str(Path(__file__).resolve().parent / {str(parent)!r}))\n"
+        f"importlib.import_module({module!r})\n"
+    ).encode("utf-8")
 
 
 def _release_credentials(root: Path | None = None) -> tuple[Path, str, str, str]:
@@ -217,6 +300,8 @@ def _private_entry(name: str) -> bool:
 def protect_android_apk(
     apk: Path, root: Path, *, debug: bool,
     toolchain_root: Path | None = None, obfuscate: bool = False,
+    entry_point: str = "main.py", protect_source: bool = True,
+    protect_resources: bool = False,
 ) -> Path:
     """Cross-compile sources as Android ARM64 Cython extensions and re-sign.
 
@@ -234,6 +319,8 @@ def protect_android_apk(
             "Cython Android protection requires a full deployment with retained "
             "python-for-android headers and NDK. Incremental .pyc fallback disabled."
         )
+    if protect_source:
+        module_name(entry_point)
     if debug:
         store, alias, store_password, key_password = (
             _debug_keystore(), "androiddebugkey", "android", "android"
@@ -258,11 +345,25 @@ def protect_android_apk(
         compiled: dict[str, Path] = {}
         jobs: list[tuple[str, Path, Path]] = []
         protected: set[str] = set()
+        resource_additions: dict[str, Path] = {}
+        resource_removals: frozenset[str] = frozenset()
+        if protect_resources:
+            package, runtime_source, runtime_extension, resource_removals = (
+                _prepare_android_resource_package(root, temp)
+            )
+            # The loader imports this extension explicitly as module runtime;
+            # the .velto directory is only its on-disk container.
+            jobs.append(("runtime.py", runtime_source, runtime_extension))
+            resource_additions = {
+                ".velto/resources.pak": package,
+                ".velto/runtime.so": runtime_extension,
+            }
         with tarfile.open(fileobj=io.BytesIO(original_private), mode="r:*") as tar:
             members = [m for m in tar.getmembers() if m.isfile()]
             for member in members:
                 name = member.name.removeprefix("./").strip("/")
-                if not name.endswith(".py") or not _owned(name, root):
+                if (not protect_source or not name.endswith(".py") or not _owned(name, root)
+                        or (entry_point != "main.py" and name == "main.py")):
                     continue
                 file = tar.extractfile(member)
                 if file is None:
@@ -273,23 +374,43 @@ def protect_android_apk(
                 target.parent.mkdir(parents=True, exist_ok=True)
                 source_path = temp / "sources" / name
                 source_path.parent.mkdir(parents=True, exist_ok=True)
-                source_path.write_bytes(_prepare_cython_source(payload, name))
+                source_path.write_bytes(_prepare_cython_source(payload, name, entry_point=entry_point))
                 jobs.append((name, source_path, target))
                 compiled[target_name] = target
                 protected.add(name)
-        if "main.py" not in protected:
-            raise RuntimeError("Android private archive is missing project main.py")
-        compile_android_extensions(
-            jobs, apk=apk, toolchain_root=toolchain_root,
-            obfuscate=obfuscate,
-        )
-        source_stub = temp / "main.py"
-        source_stub.write_bytes(_bootstrap())
+        # With a custom entry, main.py in the APK is the p4a launcher. If the
+        # project also owns main.py, compile its original contents separately
+        # so imports of ``main`` retain their normal meaning.
+        original_main = root / "main.py"
+        if protect_source and entry_point != "main.py" and original_main.is_file():
+            target = temp / "compiled" / "main.so"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source_path = temp / "sources" / "main.py"
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            source_path.write_bytes(_prepare_cython_source(
+                original_main.read_bytes(), "main.py", entry_point=entry_point
+            ))
+            jobs.append(("main.py", source_path, target))
+            compiled["main.so"] = target
+            protected.add("main.py")
+        if protect_source and entry_point not in protected:
+            raise RuntimeError(f"Android private archive is missing project entry point: {entry_point}")
+        if jobs:
+            compile_android_extensions(
+                jobs, apk=apk, toolchain_root=toolchain_root,
+                obfuscate=obfuscate if protect_source else False,
+            )
+        source_stub = None
+        if protect_source:
+            source_stub = temp / "main.py"
+            source_stub.write_bytes(_bootstrap(entry_point))
+        additions = {**compiled, **resource_additions}
+        replacements = {"main.py": source_stub} if source_stub is not None else {}
         private = _amended_private_tar(
             original_private,
-            {**compiled, "main.py": source_stub},
-            remove=frozenset(protected - {"main.py"}),
-            replace={"main.py": source_stub},
+            additions,
+            remove=frozenset(protected - {"main.py"}) | resource_removals,
+            replace=replacements,
         )
         marker = hashlib.sha1(original_private + private).hexdigest()
         unsigned = temp / "unsigned.apk"
@@ -333,7 +454,10 @@ def protect_android_apk(
              str(signed)],
             check=True, capture_output=True, text=True,
         )
-        verify_android_release_source_protection(signed, root)
+        if protect_source:
+            verify_android_release_source_protection(signed, root, entry_point=entry_point)
+        if protect_resources:
+            verify_android_resource_protection(signed)
         verify_android_exclusions(signed, root)
         destination = apk.with_name(apk.name + ".velto-protected")
         try:
@@ -344,7 +468,31 @@ def protect_android_apk(
     return apk
 
 
-def verify_android_release_source_protection(apk: Path, root: Path) -> None:
+def verify_android_resource_protection(apk: Path) -> None:
+    """Ensure Qyro's encrypted bundle replaces plaintext runtime resources."""
+    with ZipFile(apk) as archive:
+        private_name = next((name for name in ("assets/private.tar", "assets/private.mp3")
+                             if name in archive.namelist()), None)
+        if private_name is None:
+            raise RuntimeError("Android resource-protection APK lacks private archive")
+        with tarfile.open(fileobj=io.BytesIO(archive.read(private_name)), mode="r:*") as tar:
+            files = {member.name.removeprefix("./").strip("/"): member
+                     for member in tar if member.isfile()}
+            package = tar.extractfile(files.get(".velto/resources.pak"))
+            runtime = tar.extractfile(files.get(".velto/runtime.so"))
+            if package is None or runtime is None:
+                raise RuntimeError("Android resource protection lacks resources.pak or runtime.so")
+            if not package.read().startswith(_RESOURCE_PACK_MAGIC):
+                raise RuntimeError("Android protected resources package has invalid format")
+            if not _is_elf_arm64(runtime.read(32)):
+                raise RuntimeError("Android protected resource runtime is not ARM64 ELF")
+            leaked = sorted(name for name in files
+                            if name.startswith(("settings/", "resources/")))
+            if leaked:
+                raise RuntimeError("Android APK exposes protected resources: " + ", ".join(leaked[:12]))
+
+
+def verify_android_release_source_protection(apk: Path, root: Path, *, entry_point: str = "main.py") -> None:
     """Fail if application/framework Python source survived in an APK."""
     with ZipFile(apk) as archive:
         names = [name for name in archive.namelist() if _private_entry(name)]
@@ -355,8 +503,8 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
                 m.name.removeprefix("./").strip("/")
                 for m in tar.getmembers() if m.isfile()
             }
-            if "main.so" not in items or "main.py" not in items:
-                raise RuntimeError("Protected release lacks Cython main.so and bootstrap")
+            if output_name(entry_point) not in items or "main.py" not in items:
+                raise RuntimeError("Protected release lacks the compiled entry point and bootstrap")
             exposed = sorted(
                 name for name in items
                 if name != "main.py" and name.endswith(".py") and _owned(name, root)
@@ -388,16 +536,5 @@ def verify_android_release_source_protection(apk: Path, root: Path) -> None:
                         "Protected APK contains non-Android Cython extension: " + name
                     )
             bootstrap = tar.extractfile("main.py")
-            if bootstrap is None or bootstrap.read() != _bootstrap():
+            if bootstrap is None or bootstrap.read() != _bootstrap(entry_point):
                 raise RuntimeError("Protected release contains an unverified main.py")
-
-
-def protect_android_release_apk(
-    apk: Path, root: Path, *, toolchain_root: Path | None = None,
-    obfuscate: bool = False,
-) -> Path:
-    """Backward-compatible release entry point; never uses a debug key."""
-    return protect_android_apk(
-        apk, root, debug=False, toolchain_root=toolchain_root,
-        obfuscate=obfuscate,
-    )

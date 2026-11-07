@@ -136,6 +136,7 @@ def test_pyside_android_init_resolves_public_archive_wheels(project, monkeypatch
     runner = Mock()
     def run_qt(command, cwd):
         (project / "pysidedeploy.spec").write_text("[app]\\n")
+        (project / "buildozer.spec").write_text("[app]\n")
         return 0
     runner.run.side_effect = run_qt
     pyside = project / "pyside6-6.12.0-6.12.0-cp310-abi3-android_aarch64.whl"
@@ -170,7 +171,7 @@ def test_pyside_android_init_resolves_public_archive_wheels(project, monkeypatch
     )
     runner.run.assert_called_once()
     args = runner.run.call_args.args[0]
-    assert args[0] == "/usr/bin/pyside6-android-deploy"
+    assert args[1].endswith("android_deploy_entry.py")
     assert args[args.index("--wheel-pyside") + 1] == str(pyside)
     assert args[args.index("--wheel-shiboken") + 1] == str(shiboken)
 
@@ -185,6 +186,7 @@ def test_pyside_android_init_passes_wheels_to_qt(project, monkeypatch):
 
     def run_qt(command, cwd):
         (project / "pysidedeploy.spec").write_text("[app]\\n")
+        (project / "buildozer.spec").write_text("[app]\n")
         return 0
 
     runner.run.side_effect = run_qt
@@ -208,7 +210,9 @@ def test_pyside_android_init_passes_wheels_to_qt(project, monkeypatch):
     )
     assert MobileToolchainFreezer(runner).freeze(request) is None
     args = runner.run.call_args.args[0]
-    assert args[:4] == ["/usr/bin/pyside6-android-deploy", "--init", "--name", "Demo"]
+    assert args[1].endswith("android_deploy_entry.py")
+    assert args[2:4] == ["--velto-entry", "main.py"]
+    assert args[4:7] == ["--init", "--name", "Demo"]
     assert args[args.index("--wheel-pyside") + 1] == str(wheel_pyside)
     assert args[args.index("--wheel-shiboken") + 1] == str(wheel_shiboken)
 
@@ -429,6 +433,8 @@ def test_pyside_android_build_keeps_modules_and_gradle_diagnostics(
     project, monkeypatch,
 ):
     """Deploy receives explicit native PSX Qt modules even if spec is rewritten."""
+    from contextlib import nullcontext
+    monkeypatch.setattr("velto_cli.adapters.mobile.qt.android.staged_android_project", lambda root: nullcontext(root))
     (project / "pysidedeploy.spec").write_text("[qt]\\nmodules = \\n")
     apk = project / "app.apk"
     runner = Mock()
@@ -457,6 +463,7 @@ def test_pyside_android_build_keeps_modules_and_gradle_diagnostics(
         app_name="Demo",
         version="1.0.0",
         init_only=False,
+        debug=True,
         wheel_pyside=wheels[0],
         wheel_shiboken=wheels[1],
     )
@@ -471,6 +478,8 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     project, monkeypatch, declaration_exists,
 ):
     """Regression: Gradle initially misses QtActivityBase but Velto resumes."""
+    from contextlib import nullcontext
+    monkeypatch.setattr("velto_cli.adapters.mobile.qt.android.staged_android_project", lambda root: nullcontext(root))
     (project / "pysidedeploy.spec").write_text("[qt]\nmodules = \n")
     dist = (
         project / ".buildozer" / "android" / "platform"
@@ -504,7 +513,7 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     runner = Mock()
     apk = dist / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     def invoke(command, cwd):
-        if command[0].endswith("pyside6-android-deploy"):
+        if len(command) > 1 and command[1].endswith("android_deploy_entry.py"):
             return 1
         assert command == [str(dist / "gradlew"), "assembleDebug"]
         _qt_test_apk(apk)
@@ -535,3 +544,24 @@ def test_pyside_qt_android_automatically_repairs_missing_base_jar(
     if not declaration_exists:
         assert "Bindings.jar')\n    implementation files" in content
     assert runner.run.call_count == 2
+
+
+def test_kivy_android_uses_configured_entry(project, monkeypatch):
+    (project / 'main.py').unlink()
+    (project / 'launch.py').write_text('print("configured")\n')
+    (project / 'buildozer.spec').write_text('[app]\n')
+    (project / 'bin').mkdir()
+    (project / 'bin/demo.apk').write_bytes(b'apk')
+    monkeypatch.setattr('velto_cli.adapters.mobile.common.base.shutil.which', lambda name: '/usr/bin/' + name)
+    runner = Mock()
+    def build(command, cwd):
+        launcher = Path(cwd) / 'main.py'
+        assert "launch.py" in launcher.read_text()
+        return 0
+    runner.run.side_effect = build
+    request = MobileFreezeRequest(project_root=project, target=MobileTarget.ANDROID,
+        framework=MobileFramework.KIVY, app_name='Demo', version='1.0.0',
+        debug=True, entry_point='launch.py')
+    MobileToolchainFreezer(runner).freeze(request)
+    assert not (project / 'main.py').exists()
+    assert (project / 'launch.py').is_file()

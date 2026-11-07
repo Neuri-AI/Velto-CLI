@@ -190,12 +190,13 @@ def test_sign_json_is_never_bundled_and_windows_mac_preserved(tmp_path):
     assert json.loads((settings / "sign.json").read_text()) == content
 
 
-def test_sign_json_legacy_sign_wrapper(tmp_path):
+def test_sign_json_rejects_legacy_sign_wrapper(tmp_path):
     from velto_cli.adapters.mobile.qt.android_build_config import load_android_signing
     settings = tmp_path / "settings"
     settings.mkdir()
     (settings / "sign.json").write_text('{"sign": {"android": {"alias": "old"}}}')
-    assert load_android_signing(tmp_path) == {"alias": "old"}
+    with pytest.raises(ValueError, match="root level"):
+        load_android_signing(tmp_path)
 
 
 def test_android_json_does_not_accept_signing_secrets(tmp_path):
