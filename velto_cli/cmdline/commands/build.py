@@ -77,7 +77,7 @@ class BuildCommand:
             dest="clean",
             action="store_true",
             default=None,
-            help="Clean PyInstaller cache and remove temporary build artifacts before and after building.",
+            help="Force a fresh Android mobile build, or clean PyInstaller cache on desktop.",
         )
 
         parser.add_argument(
@@ -94,6 +94,26 @@ class BuildCommand:
             choices=["desktop", "windows", "win", "mac", "macos", "darwin", "linux", "android", "ios"],
             default="desktop",
             help="Build target platform (e.g. desktop, macos, windows, linux, android, ios).",
+        )
+
+        parser.add_argument(
+            "--wheel-pyside",
+            dest="wheel_pyside",
+            default=None,
+            help="Android target PySide6 wheel (.whl). Required when initializing the Qt Android spec.",
+        )
+        parser.add_argument(
+            "--wheel-shiboken",
+            dest="wheel_shiboken",
+            default=None,
+            help="Android target Shiboken6 wheel (.whl). Required when initializing the Qt Android spec.",
+        )
+
+        parser.add_argument(
+            "--protect-source",
+            dest="protect_source",
+            action="store_true",
+            help="Compile Python/PSX to sourceless bytecode in a signed Android APK; --debug uses automatic debug signing.",
         )
 
         parser.add_argument(
@@ -119,16 +139,25 @@ class BuildCommand:
                 if target_str == "android"
                 else MobileTarget.IOS
             )
-            if hasattr(c, "mobile_build_use_case"):
-                c.mobile_build_use_case.execute(
+            try:
+                c.freeze_mobile_use_case.execute(
                     target=target,
+                    project_root=Path.cwd(),
                     init_only=getattr(args, "init_spec", False),
-                    debug=getattr(args, "debug", False),
+                    debug=bool(getattr(args, "debug", False)),
+                    clean=bool(getattr(args, "clean", False)),
+                    protect_source=bool(getattr(args, "protect_source", False)),
+                    wheel_pyside=getattr(args, "wheel_pyside", None),
+                    wheel_shiboken=getattr(args, "wheel_shiboken", None),
                 )
-            else:
-                c.ui.error("Mobile build use case is not configured in this runtime.")
+                return 0
+            except Exception as exc:
+                c.ui.error(str(exc))
                 return 1
-            return 0
+
+        if bool(getattr(args, "protect_source", False)):
+            c.ui.error("--protect-source is supported only for Android PySide6 builds")
+            return 1
 
         # Determine profile from --profile or --target if user specifies platform OS
         profile_val = getattr(args, "profile", "release")

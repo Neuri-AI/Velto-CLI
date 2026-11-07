@@ -11,8 +11,7 @@
 > behavior, and configuration formats may change between releases.
 >
 > Supported workflows currently focus on desktop applications. Mobile
-> packaging is experimental and is not part of the supported production
-> workflow.
+> freezing is under active implementation and is not yet production certified.
 
 # Velto CLI
 
@@ -30,13 +29,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/neuri)
 
-> [!WARNING]
-> **Mobile support is experimental.** Buildozer packaging, the `[mobile]`
-> extra, Android/iOS targets, and Kivy mobile workflows are incomplete and may
-> change without notice.
->
-> The currently supported velto CLI workflow is desktop-only on Windows, macOS,
-> and Linux.
+> [!NOTE]
+> **Mobile freezing is in active development.** The Android/iOS commands are now
+> wired to mobile toolchain adapters. A working production application still
+> depends on target-compatible Python and Cinnamon/Rust builds, signing and
+> real device validation.
 
 ---
 
@@ -132,31 +129,78 @@ poetry add velto-cli
 > Resource protection encryption requires the desktop extra because it uses
 > Cython during build to compile the runtime secret module.
 
-### Experimental mobile installation
+### Mobile toolchain installation
 
-> [!WARNING]
-> Mobile packaging is experimental and is not part of the supported production
-> workflow. Install this extra only if you are testing the Buildozer
-> integration.
+Mobile extras are grouped by renderer, not by destination. Install the
+backend you use, then select Android or iOS with `--target`.
 
 ```bash
-# Using pip
+pip install "velto-cli[mobile-kivy]"
+# or
+pip install "velto-cli[mobile-pyside6]"
+
+# Install the tools for both backends
 pip install "velto-cli[mobile]"
-
-# Using Poetry
-poetry add velto-cli -E mobile
 ```
-
-The `[all]` extra includes experimental mobile dependencies and is not
-recommended for production use:
 
 ```bash
-# Using pip
-pip install "velto-cli[all]"
-
-# Using Poetry
-poetry add velto-cli -E all
+velto build --target android --init-spec
+velto build --target android --debug
+velto build --target ios
 ```
+
+The selected `framework` in `settings/base.json` determines whether Kivy
+or PySide6 is used. Android uses Buildozer (also used internally by the Qt
+Android deploy tool); Kivy iOS uses `kivy-ios`; PySide6 iOS uses the deploy
+command bundled with PySide6. iOS compilation needs macOS and Xcode. On
+Windows, run Android toolchains inside WSL2.
+
+The PySide6 Android extra includes deployment-script dependencies:
+`jinja2`, `pkginfo`, and `tqdm`. For an existing environment that
+predates these extras, install the requirements file bundled with your
+local PySide6 installation, then rerun `velto build --target android
+--init-spec`.
+
+For PySide6 Android, Velto automatically selects the Qt wheel source:
+
+1. **Commercial Qt:** When `qtpip` is installed, Velto attempts Qt's
+   commercial download. Qt checks the user's configured commercial license.
+   Successfully obtained wheels take priority.
+2. **Open-source Qt:** Without `qtpip`, or if the commercial download is
+   rejected, Velto downloads matching wheels from the public Qt archive.
+
+Commercial and public artifacts use separate directories below
+`~/.velto/mobile/pyside6/android/`, grouped by architecture and Qt version.
+
+```bash
+# Normal open-source installation
+pip install "velto-cli[mobile-pyside6]"
+
+# Opt in to Qt's commercial tooling (valid Qt license required)
+pip install "velto-cli[mobile-pyside6-commercial]"
+
+# Identical application-facing commands for both editions
+velto build --target android --init-spec
+velto build --target android --debug
+```
+
+The public repositories are
+`https://download.qt.io/official_releases/QtForPython/pyside6/` and
+`https://download.qt.io/official_releases/QtForPython/shiboken6/`.
+If the matching public wheels are unavailable, the build fails explicitly.
+You can also supply local wheels using `--wheel-pyside` and
+`--wheel-shiboken` as advanced overrides.
+
+**Licensing:** An installed `qtpip` executable does not itself establish a
+valid commercial license. Qt controls authorization, and a commercial project
+must follow the applicable Qt licensing terms. Do not treat public-wheel
+fallback as permission to mix incompatible commercial/open-source licensing.
+
+These optional Python packages do **not** install the Android SDK/NDK,
+Xcode, signing credentials, target-architecture Qt wheels, or a mobile
+Cinnamon/Rust extension. Mobile runtime and artifact validation remains
+necessary before calling the resulting apps production-ready.
+
 
 ---
 
@@ -249,8 +293,7 @@ Notes:
 
 - `desktop` maps to the desktop template target.
 - If these flags are omitted, `velto init` uses the interactive wizard.
-- Mobile targets are experimental and are not part of the supported desktop
-  workflow.
+- Mobile targets require native toolchains, compatible wheels and device validation.
 
 Supported frameworks:
 
@@ -299,6 +342,34 @@ velto build --target linux
 # Additional controls
 velto build --debug --console --uac --clean --interactive
 ```
+
+### Mobile freeze commands
+
+The mobile build path uses the existing `BuildCommand`, settings and dependency
+injection container. Set `framework` to `Kivy` or `PySide6` in
+`settings/base.json`; other renderers are rejected for mobile targets.
+
+```bash
+# Generate an Android toolchain configuration (where supported)
+velto build --target android --init-spec
+
+# Kivy/Android: build an APK in debug mode
+velto build --target android --debug
+
+# Android release toolchain build
+velto build --target android
+
+# iOS: generate an Xcode project on macOS
+velto build --target ios
+```
+
+Kivy/Android uses `buildozer.spec`; PySide6 uses `pysidedeploy.spec`
+and platform-specific PySide6/shiboken6 wheels. iOS requires macOS with
+full Xcode installed. Windows Android builds should run inside WSL2.
+For iOS, a generated Xcode project is **not** a signed IPA.
+The toolchains do not automatically make Python C extensions or the
+Cinnamon Rust engine available for mobile. Build and validate those target
+artifacts before claiming a working app or publishing a mobile release.
 
 ### Protected resource encryption
 
@@ -655,7 +726,7 @@ Repository safety:
 The following areas are still under active development:
 
 - Some optional CLI flags may change or require further validation.
-- Mobile targets and Buildozer integration are experimental.
+- Mobile toolchains need target-compatible native packages and device validation.
 - Code signing and notarization require platform-specific tools and
   credentials.
 - Compatibility depends on the framework, operating system, Python version,
@@ -794,12 +865,12 @@ npm install -g create-dmg
 | **PyQt6** | `PyQt6Adapter` | Feature-complete Qt 6 desktop applications. |
 | **PyQt5** | `PyQt5Adapter` | Legacy Qt 5 desktop applications. |
 | **PySide2** | `PySide2Adapter` | Qt 5 environments; not included in the current matrix. |
-| **Kivy** | `KivyAdapter` | Cross-platform desktop interfaces; mobile support is experimental. |
+| **Kivy** | `KivyAdapter` | Cross-platform desktop interfaces; mobile packaging is being implemented. |
 | **Tkinter** | `TkinterAdapter` | Desktop utilities built on the Python standard library. |
 
-> [!WARNING]
-> All adapters are currently supported on desktop only. Mobile deployment is
-> experimental and is not part of the supported production workflow.
+> [!NOTE]
+> Desktop certification does not establish mobile compatibility. Android/iOS
+> runtime and artifact validation is part of the current implementation.
 
 ---
 

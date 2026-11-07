@@ -1,0 +1,31 @@
+name: Validate Poetry lock
+on:
+  push:
+    branches:
+      - feature/mobile-freeze
+    paths:
+      - pyproject.toml
+      - poetry.lock
+      - .github/workflows/mobile-lock-repair.yml
+  pull_request:
+    paths:
+      - pyproject.toml
+      - poetry.lock
+      - .github/workflows/mobile-lock-repair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Poetry
+        run: python -m pip install 'poetry==2.4.1'
+      - name: Verify committed lock is consistent with pyproject.toml
+        run: poetry check --lock
