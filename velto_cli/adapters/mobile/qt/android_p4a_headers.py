@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -47,6 +48,26 @@ def _verified_qt_apk(apk: Path) -> bool:
         return False
 
 
+def _distribution_name_from_apk(apk: Path) -> str:
+    """Read the distribution name from an already-verified Qt APK filename.
+
+    PySide6 produces <name>-<version>-arm64-v8a-debug.apk, while the
+    original Gradle output uses <name>-debug.apk.
+    """
+    name = apk.name
+    match = re.fullmatch(
+        r"(?P<name>[A-Za-z][A-Za-z0-9_.-]*?)-"
+        r"(?:[0-9]+(?:\\.[0-9]+)*-arm64-v8a-)?"
+        r"(?:debug|release)\\.apk",
+        name,
+    )
+    if match is None or not match.group("name"):
+        raise RuntimeError(
+            f"Cannot determine the Qt p4a distribution name from APK: {name}"
+        )
+    return match.group("name")
+
+
 def _distribution(
     toolchain_root: Path, apk: Path | None = None,
 ) -> tuple[Path, Path, dict]:
@@ -69,7 +90,10 @@ def _distribution(
         sorted(p for p in dist_base.iterdir() if p.is_dir())
         if dist_base.is_dir() else []
     )
-    preferred = dist_base / toolchain_root.name
+    preferred = (
+        dist_base / _distribution_name_from_apk(apk)
+        if apk is not None else dist_base / toolchain_root.name
+    )
     if preferred.is_dir():
         roots = [preferred]
     elif not roots and apk is not None:
@@ -78,7 +102,7 @@ def _distribution(
         return preferred, storage, {"recipes": list(_QT_RECIPES)}
     elif len(roots) != 1:
         raise RuntimeError(
-            "Cannot unambiguously select Qt p4a distribution. "
+            "Cannot verify a Qt p4a distribution: cannot unambiguously select it. "
             f"Found: {[candidate.name for candidate in roots]}"
         )
     for distribution in roots:
