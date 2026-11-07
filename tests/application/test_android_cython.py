@@ -287,3 +287,35 @@ def test_p4a_apk_authority_without_intermediate_libs(tmp_path):
     assert selected == dist
     assert storage.name == "build-arm64-v8a"
     assert set(("python3", "shiboken6", "pyside6")).issubset(info["recipes"])
+
+
+def test_p4a_recovery_when_qt_erases_entire_dists_tree(tmp_path, monkeypatch):
+    from zipfile import ZipFile
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+    apk = tmp_path / "AndroidAppQt-0.1-arm64-v8a-debug.apk"
+    with ZipFile(apk, "w") as z:
+        z.writestr("lib/arm64-v8a/libpython3.14.so", b"fixture")
+        z.writestr("lib/arm64-v8a/libQt6Gui_arm64-v8a.so", b"fixture")
+        z.writestr("assets/private.tar", b"fixture")
+    (tmp_path / "deployment/recipes").mkdir(parents=True)
+    monkeypatch.setattr(p4a, "_ndk_root", lambda: tmp_path / "ndk")
+    monkeypatch.setattr(p4a, "_android_sdk_root", lambda: tmp_path / "sdk")
+    assert not (tmp_path / ".buildozer/android/platform/build-arm64-v8a/dists").exists()
+    distribution, storage, info = p4a._distribution(tmp_path, apk)
+    assert distribution == storage / "dists/AndroidAppQt"
+    assert set(("python3", "pyside6", "shiboken6")).issubset(info["recipes"])
+    args = p4a._create_command(tmp_path, 28, apk)
+    assert args[3] == "create"
+    assert args[args.index("--dist_name") + 1] == "AndroidAppQt"
+    assert "--force-build" in args
+    assert not distribution.exists()
+
+
+def test_p4a_missing_dists_cannot_proceed_without_real_apk(tmp_path):
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+    with pytest.raises(RuntimeError, match="Cannot verify a Qt"):
+        p4a._distribution(tmp_path)
+    fake = tmp_path / "broken.apk"
+    fake.write_bytes(b"not an apk")
+    with pytest.raises(RuntimeError, match="valid previously generated Qt"):
+        p4a._distribution(tmp_path, fake)
