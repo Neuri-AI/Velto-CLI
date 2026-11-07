@@ -57,8 +57,8 @@ def _distribution_name_from_apk(apk: Path) -> str:
     name = apk.name
     match = re.fullmatch(
         r"(?P<name>[A-Za-z][A-Za-z0-9_.-]*?)-"
-        r"(?:[0-9]+(?:\\.[0-9]+)*-arm64-v8a-)?"
-        r"(?:debug|release)\\.apk",
+        r"(?:[0-9]+(?:\.[0-9]+)*-arm64-v8a-)?"
+        r"(?:debug|release)\.apk",
         name,
     )
     if match is None or not match.group("name"):
