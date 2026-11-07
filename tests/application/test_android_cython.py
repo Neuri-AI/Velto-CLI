@@ -367,3 +367,50 @@ def test_p4a_checkout_fails_closed_if_missing(tmp_path):
     from velto_cli.adapters.mobile.qt.android_p4a_headers import _p4a_checkout
     with pytest.raises(RuntimeError, match="Buildozer's python-for-android checkout"):
         _p4a_checkout(tmp_path)
+
+
+def test_p4a_checkout_finds_existing_global_buildozer_tree(
+    tmp_path, monkeypatch,
+):
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(p4a.Path, "home", lambda: fake_home)
+    package = (
+        fake_home / ".buildozer/android/platform/python-for-android"
+        / "pythonforandroid"
+    )
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "toolchain.py").write_text("")
+    assert p4a._p4a_checkout(tmp_path / "stage") == package.parent
+
+
+def test_p4a_checkout_reads_buildozer_source_dir(tmp_path, monkeypatch):
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+    monkeypatch.delenv("VELTO_ANDROID_P4A_SOURCE_DIR", raising=False)
+    checkout = tmp_path / "source"
+    package = checkout / "pythonforandroid"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "toolchain.py").write_text("")
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "buildozer.spec").write_text(
+        "[app]\np4a.source_dir = " + str(checkout) + "\n"
+    )
+    assert p4a._p4a_checkout(stage) == checkout
+
+
+def test_p4a_checkout_requires_pinned_commit_for_reclone(
+    tmp_path, monkeypatch,
+):
+    from velto_cli.adapters.mobile.qt import android_p4a_headers as p4a
+    monkeypatch.setattr(p4a.Path, "home", lambda: tmp_path / "home")
+    monkeypatch.delenv("VELTO_ANDROID_P4A_SOURCE_DIR", raising=False)
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "buildozer.spec").write_text(
+        "[app]\np4a.branch = develop\np4a.commit = HEAD\n"
+    )
+    with pytest.raises(RuntimeError, match="exact 40-character p4a.commit"):
+        p4a._p4a_checkout(stage)
