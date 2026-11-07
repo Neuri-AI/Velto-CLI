@@ -189,6 +189,7 @@ def test_p4a_native_recovery_only_invokes_create(tmp_path, monkeypatch):
 
 def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch):
     import json
+    import os
     from subprocess import CompletedProcess
     from velto_cli.adapters.mobile.qt import android_p4a_headers
 
@@ -205,7 +206,13 @@ def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch):
     monkeypatch.setattr(
         android_p4a_headers, "_android_sdk_root", lambda: tmp_path / "sdk",
     )
+    checkout = tmp_path / ".buildozer/android/platform/python-for-android"
+    package = checkout / "pythonforandroid"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "toolchain.py").write_text("")
     monkeypatch.setenv("APP_P4A_EXTRA_ARGS", "--force-build")
+    monkeypatch.setenv("PYTHONPATH", "/existing/python/path")
     commands = []
     def mock_run(cmd, **kwargs):
         commands.append((cmd, kwargs["env"]))
@@ -223,6 +230,9 @@ def test_p4a_header_recovery_clears_global_force_flag(tmp_path, monkeypatch):
     assert len(commands) == 1
     assert commands[0][0][3] == "create"
     assert "APP_P4A_EXTRA_ARGS" not in commands[0][1]
+    assert commands[0][1]["PYTHONPATH"] == (
+        str(checkout) + os.pathsep + "/existing/python/path"
+    )
     assert "--force-build" in commands[0][0]
 
 
@@ -339,3 +349,21 @@ def test_p4a_distribution_name_rejects_unexpected_filename():
     )
     with pytest.raises(RuntimeError, match="Cannot determine"):
         _distribution_name_from_apk(Path("broken.apk"))
+
+
+def test_p4a_checkout_uses_buildozer_staged_module(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_p4a_headers import _p4a_checkout
+    package = (
+        tmp_path / ".buildozer/android/platform/python-for-android"
+        / "pythonforandroid"
+    )
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "toolchain.py").write_text("")
+    assert _p4a_checkout(tmp_path) == package.parent
+
+
+def test_p4a_checkout_fails_closed_if_missing(tmp_path):
+    from velto_cli.adapters.mobile.qt.android_p4a_headers import _p4a_checkout
+    with pytest.raises(RuntimeError, match="Buildozer's python-for-android checkout"):
+        _p4a_checkout(tmp_path)
