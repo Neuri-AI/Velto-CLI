@@ -112,3 +112,14 @@ root, and asks a **separate** `p4a create --force-build` to regenerate the
 native Python recipe and headers. It does not require the old distribution
 directory to exist or create it manually. If the completed APK cannot be
 verified, recovery still fails closed.
+
+## Buildozer's python-for-android module location
+
+On macOS, `pythonforandroid` may not be installed in the active Conda
+interpreter's site-packages. Buildozer keeps its exact checkout under
+`<staged-project>/.buildozer/android/platform/python-for-android/`.
+For the separate native `p4a create` recovery, Velto now prepends that
+checkout to the child process's `PYTHONPATH`. This does not change the
+user's environment and does not install a second p4a version. If the checkout
+was removed, Velto fails with a targeted diagnostic rather than claiming
+Cython compiled anything.
