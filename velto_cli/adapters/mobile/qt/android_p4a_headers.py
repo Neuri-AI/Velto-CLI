@@ -160,14 +160,37 @@ def _create_command(
     ]
 
 
+def _p4a_checkout(toolchain_root: Path) -> Path:
+    """Find the exact python-for-android checkout used by Buildozer.
+
+    The host Python environment need not have pythonforandroid installed as
+    a pip package: Buildozer imports it from this project-stage checkout.
+    """
+    checkout = toolchain_root / ".buildozer/android/platform/python-for-android"
+    if not (
+        (checkout / "pythonforandroid/__init__.py").is_file()
+        and (checkout / "pythonforandroid/toolchain.py").is_file()
+    ):
+        raise RuntimeError(
+            "Cannot locate Buildozer's python-for-android checkout at "
+            f"{checkout}. Cython header recovery requires the exact "
+            "toolchain used to generate the APK, not a separate pip install."
+        )
+    return checkout
+
+
 def recover_android_python_headers(
     toolchain_root: Path, version: tuple[int, int], *, ndk_api: int = 28,
     apk: Path | None = None,
 ) -> None:
     """Rebuild p4a distribution only, never Qt APK packaging."""
     command = _create_command(toolchain_root, ndk_api, apk)
+    checkout = _p4a_checkout(toolchain_root)
     env = os.environ.copy()
     env.pop("APP_P4A_EXTRA_ARGS", None)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(checkout), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
+    )
     env["ANDROIDNDK"] = str(_ndk_root())
     env["ANDROIDSDK"] = str(_android_sdk_root())
     env["PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE"] = "0"
