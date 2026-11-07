@@ -205,7 +205,7 @@ def _p4a_checkout(toolchain_root: Path) -> Path:
     url = config.get("app", "p4a.url", fallback="").strip()
     if not url:
         url = f"https://github.com/{fork}/python-for-android.git"
-    if not re.fullmatch(r"[0-9a-fA-F]{40}", commit):
+    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", commit):
         raise RuntimeError(
             "Buildozer removed its python-for-android source checkout and "
             "no usable local checkout was found. Recovery requires the "
@@ -251,7 +251,7 @@ def _p4a_checkout(toolchain_root: Path) -> Path:
             ["git", "-C", str(temporary), "rev-parse", "HEAD"],
             check=True, capture_output=True, text=True,
         ).stdout.strip()
-        if actual.lower() != commit.lower() or not _valid_p4a_checkout(temporary):
+        if not actual.lower().startswith(commit.lower()) or not _valid_p4a_checkout(temporary):
             raise RuntimeError("Downloaded p4a source does not match pinned commit")
         temporary.rename(cache)
     except (OSError, subprocess.CalledProcessError) as exc:
