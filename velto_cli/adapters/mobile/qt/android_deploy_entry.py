@@ -1,6 +1,7 @@
 """Run Qt deployment and add project dependencies after Qt generates its spec."""
 import runpy
 import sys
+import os
 from pathlib import Path
 
 import PySide6
@@ -28,7 +29,11 @@ def initialize_with_dependencies(pysidedeploy_config):
         raise ValueError('Android entry_point must stay inside the project')
     enabled = configure_requirements(root, uses_velto=uses_velto(source))
     if enabled:
-        configure_velto_wheel_recipes(Path(pysidedeploy_config.recipe_dir))
+        override = os.environ.get('VELTO_ANDROID_QYRO_WHEEL')
+        wheel = Path(override).resolve() if override else None
+        if wheel is not None and (not wheel.is_file() or wheel.suffix != '.whl'):
+            raise ValueError('VELTO_ANDROID_QYRO_WHEEL must name an existing .whl')
+        configure_velto_wheel_recipes(Path(pysidedeploy_config.recipe_dir), qyro_wheel=wheel)
     configured = True
 
 Buildozer.initialize = staticmethod(initialize_with_dependencies)

@@ -40,7 +40,10 @@ from velto_cli.adapters.mobile.qt.android_svg import (
 )
 from velto_cli.adapters.mobile.qt.android_release import android_protected_resource_prefixes
 
-_FORMAT = 3
+# Version 5 moves Android splash readiness into the Qt Java surface.  Older
+# cached APKs depended on a Python JNI extension that is not portable across
+# every PySide6 Android runtime.
+_FORMAT = 5
 _ROOT_OUTPUT_DIRS = {"build", "dist", "bin", "release"}
 _OUTPUT_SUFFIXES = {".apk", ".aab", ".pyc", ".pyo"}
 

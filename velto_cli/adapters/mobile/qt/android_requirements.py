@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import configparser
+import os
 from pathlib import Path
 import re
 import warnings
@@ -12,7 +13,7 @@ except ImportError:  # Python 3.10
     import tomli as tomllib
 
 from packaging.requirements import Requirement
-from velto_cli.adapters.mobile.qt.android_build_config import ANDROID_BUILD_FILES, ANDROID_OUTPUT_DIRS
+from velto_cli.adapters.mobile.qt.android_build_config import ANDROID_BUILD_FILES, ANDROID_OUTPUT_DIRS, ANDROID_CONFIG
 
 
 def configure_requirements(root: Path, *, uses_velto: bool) -> bool:
@@ -43,7 +44,12 @@ def configure_requirements(root: Path, *, uses_velto: bool) -> bool:
             suffix = str(exact[0]) if len(exact) == 1 else ''
             requirements.append(requirement.name + suffix)
     if uses_velto:
-        requirements.extend(['velto', 'qyro-engine', 'velto-core',
+        # p4a compares recipe names literally. The local-wheel recipe is
+        # named qyro_engine, so requesting the hyphenated PyPI name bypasses
+        # it and silently retains a cached/published distribution instead.
+        qyro_requirement = ('qyro_engine' if os.environ.get('VELTO_ANDROID_QYRO_WHEEL')
+                            else 'qyro-engine')
+        requirements.extend(['velto', qyro_requirement, 'velto-core',
                              'velto_cinnamon_core', 'resvg_py'])
     unique = []
     seen = set()
@@ -57,7 +63,7 @@ def configure_requirements(root: Path, *, uses_velto: bool) -> bool:
     # but neither that directory nor project build metadata belongs in the APK.
     for key, excluded in (
         ('source.exclude_dirs', sorted(ANDROID_OUTPUT_DIRS)),
-        ('source.exclude_patterns', sorted(ANDROID_BUILD_FILES) + ['readme', 'readme.*', 'license', 'license.*']),
+        ('source.exclude_patterns', sorted(ANDROID_BUILD_FILES | {ANDROID_CONFIG}) + ['readme', 'readme.*', 'license', 'license.*']),
     ):
         existing = [item.strip() for item in config.get('app', key, fallback='').split(',') if item.strip()]
         present = {item.lower() for item in existing}

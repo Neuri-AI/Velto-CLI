@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 import tempfile
 import tarfile
+from email.parser import BytesParser
 from typing import Callable
 from zipfile import BadZipFile, ZipFile
 
@@ -54,7 +55,8 @@ def project_uses_velto(root: Path, entry: Path) -> bool:
         return False
 
 
-def verify_velto_apk_sources(artifact: Path, root: Path | None = None) -> None:
+def verify_velto_apk_sources(artifact: Path, root: Path | None = None,
+                             qyro_wheel: Path | None = None) -> None:
     """Check the installed distributions in the actual Android Python bundle."""
     import io
     try:
@@ -64,7 +66,17 @@ def verify_velto_apk_sources(artifact: Path, root: Path | None = None) -> None:
                 raise RuntimeError("Android artifact has no Python distribution bundle")
             for bundle in bundles:
                 with tarfile.open(fileobj=io.BytesIO(apk.read(bundle)), mode="r:*") as archive:
-                    members = {item.name.lstrip('./') for item in archive if item.isfile()}
+                    members: set[str] = set()
+                    qyro_metadata: bytes | None = None
+                    for item in archive:
+                        if not item.isfile():
+                            continue
+                        name = item.name.lstrip('./')
+                        members.add(name)
+                        if ('/site-packages/qyro_engine-' in name.lower()
+                                and name.endswith('.dist-info/METADATA')):
+                            source = archive.extractfile(item)
+                            qyro_metadata = source.read() if source is not None else None
                 missing = [name for name in PACKAGES if not any(
                     item.endswith(f"/site-packages/{name}/__init__.py")
                     or item.endswith(f"/site-packages/{name}/__init__.pyc")
@@ -77,6 +89,21 @@ def verify_velto_apk_sources(artifact: Path, root: Path | None = None) -> None:
                     prefix = f"/site-packages/{distribution}-"
                     if not any(prefix in item.lower() and item.endswith('.dist-info/METADATA') for item in members):
                         raise RuntimeError(f"Android Python bundle lacks installed distribution metadata: {distribution}")
+                if qyro_wheel is not None:
+                    with ZipFile(qyro_wheel) as wheel:
+                        metadata_name = next(name for name in wheel.namelist()
+                                             if name.endswith('.dist-info/METADATA'))
+                        expected = BytesParser().parsebytes(wheel.read(metadata_name))["Version"]
+                    installed = next(item for item in members
+                                     if '/site-packages/qyro_engine-' in item.lower()
+                                     and item.endswith('.dist-info/METADATA'))
+                    if qyro_metadata is None:
+                        raise RuntimeError("Android qyro-engine metadata cannot be read")
+                    actual = BytesParser().parsebytes(qyro_metadata)["Version"]
+                    if actual != expected:
+                        raise RuntimeError(
+                            f"Android APK installed qyro-engine {actual}, expected local wheel {expected}"
+                        )
                 if not any('/site-packages/_sfle_native/' in item and item.endswith('.so')
                            for item in members):
                     raise RuntimeError("Android Python bundle is missing Cinnamon's native library")

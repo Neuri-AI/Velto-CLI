@@ -1,6 +1,8 @@
 """PySide6 Android wheel resolution, Qt Java bootstrap, and APK packaging."""
 import shutil
 import sys
+import os
+from contextlib import contextmanager
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
@@ -35,7 +37,175 @@ from velto_cli.adapters.mobile.qt.android_sources import (
 from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest, MobileTarget
 
 
+def _local_qyro_wheel(root: Path) -> Path | None:
+    value = load_android_build_config(root).get("local_wheels", {})
+    if value is None:
+        return None
+    if not isinstance(value, dict) or any(not isinstance(k, str) or not isinstance(v, str)
+                                          for k, v in value.items()):
+        raise ValueError("android.json local_wheels must map distribution names to wheel paths")
+    path_value = value.get("qyro-engine") or value.get("qyro_engine")
+    if not path_value:
+        return None
+    wheel = Path(path_value).expanduser()
+    if not wheel.is_absolute():
+        wheel = root / wheel
+    wheel = wheel.resolve()
+    if not wheel.is_file() or wheel.suffix != ".whl" or not wheel.name.startswith("qyro_engine-"):
+        raise ValueError("android.json local_wheels.qyro-engine must reference qyro_engine-*.whl")
+    return wheel
+
+
+@contextmanager
+def _qyro_wheel_override(wheel: Path | None):
+    old = os.environ.get("VELTO_ANDROID_QYRO_WHEEL")
+    try:
+        if wheel is None:
+            os.environ.pop("VELTO_ANDROID_QYRO_WHEEL", None)
+        else:
+            os.environ["VELTO_ANDROID_QYRO_WHEEL"] = str(wheel)
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("VELTO_ANDROID_QYRO_WHEEL", None)
+        else:
+            os.environ["VELTO_ANDROID_QYRO_WHEEL"] = old
+
+
 class QtAndroidBuilder:
+    def _install_android_splash_bridge(self, artifact: Path, root: Path, *, debug: bool) -> bool:
+        distribution = _gradle_directory(artifact)
+        if distribution is None:
+            return False
+        manifest = distribution / "src/main/AndroidManifest.xml"
+        if not manifest.is_file():
+            return False
+        namespace = "{http://schemas.android.com/apk/res/android}"
+        tree = ET.parse(manifest)
+        activity = next((node for node in tree.getroot().iter("activity")
+                         if (node.get(namespace + "name") or "").endswith("PythonActivity")), None)
+        if activity is None:
+            return False
+        target = "org.velto.SplashPythonActivity"
+        changed = activity.get(namespace + "name") != target
+        activity.set(namespace + "name", target)
+        source = distribution / "src/main/java/org/velto/SplashPythonActivity.java"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        gradle = distribution / "build.gradle"
+        if not gradle.is_file():
+            raise RuntimeError("Android splash bridge cannot locate build.gradle")
+        dependency = 'implementation "androidx.core:core-splashscreen:1.0.1"'
+        gradle_text = gradle.read_text(encoding="utf-8")
+        if dependency not in gradle_text:
+            marker = "dependencies {"
+            # The first dependencies block belongs to buildscript and only
+            # accepts Gradle classpath entries. p4a's application block is
+            # the final one and owns implementation dependencies.
+            position = gradle_text.rfind(marker)
+            if position < 0:
+                raise RuntimeError("Android splash bridge cannot locate Gradle dependencies block")
+            gradle.write_text(gradle_text[:position] + marker + "\n    " + dependency
+                              + gradle_text[position + len(marker):],
+                              encoding="utf-8")
+            changed = True
+        java = '''package org.velto;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
+import androidx.core.splashscreen.SplashScreen;
+import org.kivy.android.PythonActivity;
+public class SplashPythonActivity extends PythonActivity {
+  private static volatile boolean veltoReady = false;
+  private final Handler mainHandler = new Handler(Looper.getMainLooper());
+  private boolean releaseScheduled = false;
+  @Override public void onCreate(Bundle state) {
+    SplashScreen splash = SplashScreen.installSplashScreen(this);
+    splash.setKeepOnScreenCondition(() -> !veltoReady);
+    super.onCreate(state);
+    // Qt's Android surface belongs to the Java activity, so use that surface
+    // as the readiness signal.  This avoids a Python-to-JNI bridge (which is
+    // not ABI-compatible with every Qt/p4a runtime) and keeps the splash up
+    // until Qt has had a turn to submit its first buffer.
+    getWindow().getDecorView().post(this::watchQtSurface);
+    // Last-resort recovery for a broken third-party Qt runtime.
+    new Handler(Looper.getMainLooper()).postDelayed(() -> veltoReady = true, 15000);
+  }
+  private void watchQtSurface() {
+    final View root = getWindow().getDecorView();
+    final ViewTreeObserver observer = root.getViewTreeObserver();
+    observer.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+      @Override public void onGlobalLayout() {
+        SurfaceView surface = findQtSurface(root);
+        if (surface == null) return;
+        if (observer.isAlive()) observer.removeOnGlobalLayoutListener(this);
+        SurfaceHolder holder = surface.getHolder();
+        holder.addCallback(new SurfaceHolder.Callback() {
+          @Override public void surfaceCreated(SurfaceHolder ignored) { scheduleRelease(); }
+          @Override public void surfaceChanged(SurfaceHolder ignored, int format, int width, int height) { }
+          @Override public void surfaceDestroyed(SurfaceHolder ignored) { }
+        });
+        if (holder.getSurface().isValid()) scheduleRelease();
+      }
+    });
+  }
+  private SurfaceView findQtSurface(View view) {
+    if (view instanceof SurfaceView
+        && view.getClass().getName().equals("org.qtproject.qt.android.QtSurface")) {
+      return (SurfaceView) view;
+    }
+    if (!(view instanceof ViewGroup)) return null;
+    ViewGroup group = (ViewGroup) view;
+    for (int index = 0; index < group.getChildCount(); index++) {
+      SurfaceView surface = findQtSurface(group.getChildAt(index));
+      if (surface != null) return surface;
+    }
+    return null;
+  }
+  private void scheduleRelease() {
+    if (releaseScheduled) return;
+    releaseScheduled = true;
+    mainHandler.postDelayed(() -> veltoReady = true, 120);
+  }
+  public static void markVeltoReady() { veltoReady = true; }
+}
+'''
+        if not source.is_file() or source.read_text(encoding="utf-8") != java:
+            source.write_text(java, encoding="utf-8")
+            changed = True
+        splash = load_android_build_config(root).get("splash")
+        if splash is not None:
+            if not isinstance(splash, dict):
+                raise ValueError("android.json splash must be an object")
+            image, background = splash.get("image"), splash.get("background", "#171717")
+            if not isinstance(image, str) or not isinstance(background, str):
+                raise ValueError("android.json splash requires image and background strings")
+            candidate = (root / image).resolve()
+            if (not candidate.is_relative_to(root.resolve()) or not candidate.is_file()
+                    or candidate.suffix.lower() != ".png"):
+                raise ValueError("android.json splash.image must be a project PNG")
+            drawable = distribution / "src/main/res/drawable/velto_splash.png"
+            drawable.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(candidate, drawable)
+            values = distribution / "src/main/res/values-v31/velto_splash.xml"
+            values.parent.mkdir(parents=True, exist_ok=True)
+            values.write_text(
+                '<resources><style name="VeltoSplashTheme" parent="android:style/Theme.Material.NoActionBar">'
+                f'<item name="android:windowSplashScreenBackground">{background}</item>'
+                '<item name="android:windowSplashScreenAnimatedIcon">@drawable/velto_splash</item>'
+                '</style></resources>', encoding="utf-8")
+            activity.set(namespace + "theme", "@style/VeltoSplashTheme")
+            changed = True
+        if not changed:
+            return False
+        tree.write(manifest, encoding="utf-8", xml_declaration=True)
+        self._run([_gradle_command(distribution), "assembleDebug" if debug else "bundleRelease"], distribution)
+        return True
+
     @staticmethod
     def _android_wheel_version(path: Path, package: str, arch: str) -> str | None:
         """Read wheel filename metadata without importing host or Android binaries."""
@@ -497,10 +667,11 @@ class QtAndroidBuilder:
         launcher_conflict = (request.entry_point != "main.py"
                              and (request.project_root / "main.py").exists())
         resources_protected = android_resource_protection_enabled(request.project_root)
+        local_qyro = _local_qyro_wheel(request.project_root)
         # A protected APK contains compiled application modules, so only
         # unprotected debug builds can safely replace source files in-place.
         if (enabled and request.debug and not request.clean and not request.protect_source
-                and not launcher_conflict):
+                and not launcher_conflict and local_qyro is None):
             try:
                 quick = try_incremental_build(request.project_root, request)
             except Exception as exc:
@@ -531,7 +702,7 @@ class QtAndroidBuilder:
                 return self._pyside_android_impl(request)
         cache_snapshot = None
         if (enabled and request.debug and not request.protect_source
-                and not launcher_conflict):
+                and not launcher_conflict and local_qyro is None):
             try:
                 _, hashes, native = _scan(request.project_root)
                 cache_snapshot = (hashes, native)
@@ -541,12 +712,16 @@ class QtAndroidBuilder:
         # The original app (including excluded settings) is never moved.
         with staged_android_project(request.project_root) as stage:
             staged_request = replace(request, project_root=stage)
-            with android_entrypoint(stage, request.entry_point):
-                built = self._pyside_android_impl(staged_request)
+            with _qyro_wheel_override(local_qyro):
+                with android_entrypoint(stage, request.entry_point):
+                    built = self._pyside_android_impl(staged_request)
             if built is None:
                 return None
             if not built.path.is_file():
                 raise RuntimeError("Android stage produced no artifact")
+            if local_qyro is not None:
+                verify_velto_apk_sources(built.path, request.project_root,
+                                         qyro_wheel=local_qyro)
             # Verify the stage against ORIGINAL host-only exclusions, not
             # against the filtered stage's absent android.json/sign.json.
             verify_android_exclusions(built.path, request.project_root)
@@ -715,6 +890,10 @@ class QtAndroidBuilder:
                 root, artifact, debug=request.debug
             )
         if self._repair_qt_android_qpa(artifact, debug=request.debug):
+            artifact = self._qt_gradle_artifact(
+                root, artifact, debug=request.debug
+            )
+        if self._install_android_splash_bridge(artifact, root, debug=request.debug):
             artifact = self._qt_gradle_artifact(
                 root, artifact, debug=request.debug
             )

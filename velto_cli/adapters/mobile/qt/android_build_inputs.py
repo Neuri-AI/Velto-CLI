@@ -126,7 +126,7 @@ def staged_android_project(root: Path) -> Iterator[Path]:
             dirs[:] = kept
             for file in sorted(files):
                 rel = (relative_parent / file).as_posix()
-                if (is_android_excluded(rel, patterns)
+                if (is_android_excluded(rel, patterns) and rel != "settings/android.json"
                         or (parent == root and file.startswith("."))
                         or file.endswith((".apk", ".aab", ".pyc", ".pyo"))
                         or file in {"buildozer.spec"}):

@@ -71,4 +71,35 @@ def test_cinnamon_recipe_name_matches_p4a_normalized_distribution(tmp_path):
     recipe_names = [Requirement(recipe.parent.name).name]
     distribution_name = 'velto-cinnamon-core'.lower().replace('-', '_')
     assert distribution_name in recipe_names
-    assert 'velto-cinnamon-core>=0.1.1,<1.0.0' in recipe.read_text()
+    assert "'velto-cinnamon-core'" in recipe.read_text()
+
+
+def test_android_splash_waits_for_qt_surface_without_python_jni(tmp_path, monkeypatch):
+    from velto_cli.adapters.mobile.qt.android import QtAndroidBuilder
+
+    distribution = tmp_path / "distribution"
+    manifest = distribution / "src/main/AndroidManifest.xml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+        '<application><activity android:name="org.kivy.android.PythonActivity"/>'
+        '</application></manifest>', encoding="utf-8",
+    )
+    (distribution / "build.gradle").write_text("dependencies {\n}\n", encoding="utf-8")
+    (distribution / "gradlew").touch()
+    artifact = tmp_path / "app.apk"
+    artifact.touch()
+    monkeypatch.setattr("velto_cli.adapters.mobile.qt.android._gradle_directory",
+                        lambda _artifact: distribution)
+    calls = []
+    builder = QtAndroidBuilder()
+    monkeypatch.setattr(builder, "_run", lambda args, cwd: calls.append((args, cwd)),
+                        raising=False)
+
+    assert builder._install_android_splash_bridge(artifact, tmp_path, debug=True)
+    java = (distribution / "src/main/java/org/velto/SplashPythonActivity.java").read_text()
+    assert "findQtSurface" in java
+    assert "org.qtproject.qt.android.QtSurface" in java
+    assert "surfaceCreated" in java
+    assert "jnius" not in java
+    assert calls

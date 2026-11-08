@@ -254,7 +254,11 @@ def test_full_android_stage_keeps_original_files_and_excludes_secrets(tmp_path):
         assert (stage / "components/test.py").is_file()
         assert (stage / "pysidedeploy.spec").is_file()
         assert (stage / "settings/base.json").is_file()
-        for name in ("android.json", "development.json", "sign.json", "secrets.json"):
+        # android.json is retained only in the disposable stage so the
+        # Android frontend can generate native splash/protection assets;
+        # Buildozer excludes it from the final APK.
+        assert (stage / "settings" / "android.json").is_file()
+        for name in ("development.json", "sign.json", "secrets.json"):
             assert not (stage / "settings" / name).exists()
             assert (root / "settings" / name).is_file()
         assert not (stage / "build").exists()

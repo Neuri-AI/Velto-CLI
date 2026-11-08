@@ -34,15 +34,15 @@ recipe = AndroidWheelRecipe()
 '''
 
 
-def configure_velto_wheel_recipes(recipe_dir: Path) -> None:
+def configure_velto_wheel_recipes(recipe_dir: Path, *, qyro_wheel: Path | None = None) -> None:
     definitions = (
         # p4a compares normalized distribution names against recipe names
         # without normalizing the latter. Use underscores so it recognizes
         # Cinnamon as already installed and does not feed its Android wheel
         # to the host-platform pip a second time.
-        ('velto_cinnamon_core', '_sfle_native', 'velto-cinnamon-core>=0.1.1,<1.0.0'),
-        ('resvg_py', 'resvg_py', 'resvg_py>=0.5,<0.6'),
-    )
+        ('velto_cinnamon_core', '_sfle_native', 'velto-cinnamon-core'),
+        ('resvg_py', 'resvg_py', 'resvg_py'),
+    ) + ((('qyro_engine', 'qyro', qyro_wheel.resolve().as_uri()),) if qyro_wheel else ())
     for name, site, requirement in definitions:
         recipe = recipe_dir / name / '__init__.py'
         if recipe.exists() and not recipe.read_text(encoding='utf-8').startswith(
