@@ -11,6 +11,9 @@ sys.path.insert(0, str(scripts))
 from deploy_lib.android.buildozer import Buildozer
 from velto_cli.adapters.mobile.qt.android_requirements import configure_requirements
 from velto_cli.adapters.mobile.qt.android_sources import uses_velto
+from velto_cli.adapters.mobile.qt.android_local_wheels import local_wheels
+from velto_cli.adapters.mobile.qt.android_permissions import configure_android_permissions
+from velto_cli.adapters.mobile.qt.features import enabled_qt_android_features
 from velto_cli.adapters.mobile.qt.android_wheel_recipes import configure_velto_wheel_recipes
 
 initialize = Buildozer.initialize
@@ -28,12 +31,12 @@ def initialize_with_dependencies(pysidedeploy_config):
     if not source.is_relative_to(root.resolve()):
         raise ValueError('Android entry_point must stay inside the project')
     enabled = configure_requirements(root, uses_velto=uses_velto(source))
-    if enabled:
-        override = os.environ.get('VELTO_ANDROID_QYRO_WHEEL')
-        wheel = Path(override).resolve() if override else None
-        if wheel is not None and (not wheel.is_file() or wheel.suffix != '.whl'):
-            raise ValueError('VELTO_ANDROID_QYRO_WHEEL must name an existing .whl')
-        configure_velto_wheel_recipes(Path(pysidedeploy_config.recipe_dir), qyro_wheel=wheel)
+    features = enabled_qt_android_features(root)
+    features.configure_buildozer(root)
+    configure_android_permissions(root, features.required_permissions)
+    overrides = local_wheels(root)
+    if enabled or overrides:
+        configure_velto_wheel_recipes(Path(pysidedeploy_config.recipe_dir), local_wheels=overrides)
     configured = True
 
 Buildozer.initialize = staticmethod(initialize_with_dependencies)

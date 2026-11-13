@@ -15,6 +15,16 @@ from velto_cli.adapters.mobile.qt.android_build_config import (
     verify_android_exclusions,
 )
 from velto_cli.adapters.mobile.qt.android_sources import _project_runtime_assets
+from velto_cli.adapters.mobile.qt.android_permissions import configure_android_permissions
+from velto_cli.adapters.mobile.qt.features.webview import (
+    assert_android_webview_wheel,
+    configure_android_webview_buildozer,
+    configure_android_webview_spec,
+    prepare_android_webview_gradle,
+    project_uses_webview,
+    verify_android_webview_apk,
+)
+from velto_cli.adapters.mobile.qt.features import enabled_qt_android_features
 
 
 def test_android_settings_are_not_runtime_assets(tmp_path):
@@ -27,6 +37,114 @@ def test_android_settings_are_not_runtime_assets(tmp_path):
     assets = _project_runtime_assets(tmp_path)
     assert "settings/base.json" in assets
     assert "settings/android.json" not in assets
+
+
+def test_webview_requests_its_qt_module_and_android_plugin(tmp_path):
+    (tmp_path / "main.py").write_text(
+        'from psx import WebView\n\ndef view(): return WebView(src="https://example.test")\n'
+    )
+    assert project_uses_webview(tmp_path)
+    assert enabled_qt_android_features(tmp_path).names == ("webview",)
+    assert enabled_qt_android_features(tmp_path).modules == ("WebView",)
+    assert enabled_qt_android_features(tmp_path).required_permissions == (
+        "android.permission.INTERNET",
+    )
+    spec = tmp_path / "pysidedeploy.spec"
+    spec.write_text("[qt]\nmodules = \n[android]\nplugins = \n", encoding="utf-8")
+    assert configure_android_webview_spec(spec)
+    config = spec.read_text(encoding="utf-8")
+    assert "modules = WebView" in config
+    assert "plugins = webview_qtwebview_android" in config
+
+    wheel = tmp_path / "PySide6-android.whl"
+    with ZipFile(wheel, "w") as archive:
+        archive.writestr("PySide6/QtWebView.abi3.so", b"")
+        archive.writestr("PySide6/Qt/lib/libQt6WebView_arm64-v8a.so", b"")
+        archive.writestr("PySide6/Qt/plugins/webview/libplugins_webview_qtwebview_android_arm64-v8a.so", b"")
+        archive.writestr("PySide6/jar/Qt6AndroidWebView.jar", b"")
+    assert_android_webview_wheel(wheel)
+
+    apk = tmp_path / "app.apk"
+    with ZipFile(apk, "w") as archive:
+        archive.writestr("lib/arm64-v8a/libplugins_webview_qtwebview_android_arm64-v8a.so", b"")
+        archive.writestr("classes.dex", b"QtAndroidWebViewController")
+        archive.writestr("resources.arsc", b"arm64-v8a;libplugins_webview_qtwebview_android_arm64-v8a.so")
+    verify_android_webview_apk(apk)
+
+    stale_apk = tmp_path / "stale.apk"
+    with ZipFile(stale_apk, "w") as archive:
+        archive.writestr("lib/arm64-v8a/libplugins_webview_qtwebview_android_arm64-v8a.so", b"")
+        archive.writestr("classes.dex", b"QtAndroidWebViewController")
+        archive.writestr("resources.arsc", b"load_local_libs;libmain_arm64-v8a.so")
+    with pytest.raises(RuntimeError, match="QtLoader preload"):
+        verify_android_webview_apk(stale_apk)
+
+
+def test_webview_adds_its_java_bridge_jar_to_buildozer(tmp_path):
+    jars = tmp_path / "deployment/jar"
+    jars.mkdir(parents=True)
+    (jars / "Qt6AndroidWebView.jar").write_bytes(b"jar")
+    (tmp_path / "pysidedeploy.spec").write_text(
+        "[buildozer]\njars_dir = " + str(jars) + "\n", encoding="utf-8"
+    )
+    (tmp_path / "buildozer.spec").write_text(
+        "[app]\nandroid.add_jars = \nandroid.permissions = \n", encoding="utf-8"
+    )
+    assert configure_android_webview_buildozer(tmp_path)
+    config = (tmp_path / "buildozer.spec").read_text(encoding="utf-8")
+    assert str(jars / "Qt6AndroidWebView.jar") in config
+    assert not configure_android_webview_buildozer(tmp_path)
+
+
+def test_android_json_permissions_feed_generated_buildozer_spec(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "android.json").write_text(
+        '{"permissions": ["CAMERA", "android.permission.INTERNET"]}', encoding="utf-8"
+    )
+    spec = tmp_path / "buildozer.spec"
+    spec.write_text("[app]\nandroid.permissions = \n", encoding="utf-8")
+    assert configure_android_permissions(tmp_path, ("android.permission.INTERNET",))
+    assert "android.permissions = android.permission.CAMERA,android.permission.INTERNET" in spec.read_text()
+    assert not configure_android_permissions(tmp_path, ("android.permission.INTERNET",))
+
+    (settings / "android.json").write_text('{"permissions": []}', encoding="utf-8")
+    assert configure_android_permissions(tmp_path)
+    assert "android.permissions" not in spec.read_text()
+
+
+def test_android_json_rejects_invalid_permissions(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    (settings / "android.json").write_text('{"permissions": "INTERNET"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="permissions"):
+        load_android_build_config(tmp_path)
+
+
+def test_webview_preloads_jni_plugin_before_main_library(tmp_path):
+    distribution = tmp_path / "dists/Demo"
+    artifact = distribution / "build/outputs/app-debug.apk"
+    artifact.parent.mkdir(parents=True)
+    artifact.touch()
+    plugin = (distribution / "_python_bundle__arm64-v8a/_python_bundle/site-packages/"
+              "PySide6/Qt/plugins/webview/libplugins_webview_qtwebview_android_arm64-v8a.so")
+    plugin.parent.mkdir(parents=True)
+    plugin.write_bytes(b"plugin")
+    resources = distribution / "src/main/res/values"
+    resources.mkdir(parents=True)
+    (resources / "libs.xml").write_text(
+        '<resources><array name="load_local_libs"><item>arm64-v8a;libmain_arm64-v8a.so</item>'
+        '</array></resources>', encoding="utf-8"
+    )
+    (distribution / "gradlew").touch()
+    calls = []
+    assert prepare_android_webview_gradle(
+        artifact, debug=True, run=lambda args, cwd: calls.append((args, cwd))
+    )
+    assert (distribution / "libs/arm64-v8a" / plugin.name).read_bytes() == b"plugin"
+    text = (resources / "libs.xml").read_text(encoding="utf-8")
+    assert text.index(plugin.name) < text.index("libmain_arm64-v8a.so")
+    assert calls
 
 
 def test_exclusion_policy_accepts_future_paths_and_globs(tmp_path):

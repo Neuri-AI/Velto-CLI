@@ -36,6 +36,33 @@ def test_protected_resources_do_not_require_unavailable_cryptography_wheel(tmp_p
     assert 'cryptography' not in config['app']['requirements'].split(',')
 
 
+def test_every_local_wheel_overrides_its_p4a_requirement(tmp_path):
+    wheel = tmp_path / "my_native_lib-1.0.0-py3-none-any.whl"
+    with ZipFile(wheel, "w") as archive:
+        archive.writestr("my_native_lib-1.0.0.dist-info/top_level.txt", "my_native_lib\n")
+    (tmp_path / "settings").mkdir()
+    (tmp_path / "settings" / "android.json").write_text(
+        '{"local_wheels":{"my-native-lib":"' + str(wheel) + '"}}'
+    )
+    (tmp_path / "buildozer.spec").write_text('[app]\nrequirements = python3,PySide6\n')
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\ndependencies = ["my-native-lib>=1", "requests"]\n'
+    )
+
+    configure_requirements(tmp_path, uses_velto=False)
+    config = configparser.ConfigParser()
+    config.read(tmp_path / "buildozer.spec")
+    assert config["app"]["requirements"].split(",") == [
+        "python3", "shiboken6", "PySide6", "my_native_lib", "requests",
+    ]
+
+    from velto_cli.adapters.mobile.qt.android_wheel_recipes import configure_velto_wheel_recipes
+    configure_velto_wheel_recipes(tmp_path / "recipes", local_wheels={"my-native-lib": wheel})
+    recipe = (tmp_path / "recipes/my_native_lib/__init__.py").read_text()
+    assert "site_packages_name = 'my_native_lib'" in recipe
+    assert wheel.resolve().as_uri() in recipe
+
+
 def test_verifies_installed_packages_in_android_bundle(tmp_path):
     apk = tmp_path / 'app.apk'
     data = io.BytesIO()

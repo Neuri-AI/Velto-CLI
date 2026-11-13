@@ -1,5 +1,6 @@
 """Automatic, conservative Android debug APK re-packaging regression tests."""
 import io
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import tarfile
@@ -10,6 +11,7 @@ import pytest
 
 from velto_cli.adapters.mobile.qt import android_final_apk as final
 from velto_cli.adapters.mobile.qt import android_incremental as inc
+from velto_cli.adapters.mobile.qt.features import registry as feature_registry
 from velto_cli.domain.mobile import MobileFramework, MobileTarget
 
 
@@ -92,6 +94,25 @@ def project(tmp_path, monkeypatch):
         container.writestr("resources.arsc",
                            b"private_version\x00" + b"a" * 40 + b"\x00")
     return root, apk
+
+
+def test_webview_deployment_revision_invalidates_only_webview_apks(project, monkeypatch):
+    root, _ = project
+    old_key = inc._scan(root)[2]
+    webview = next(feature for feature in feature_registry.FEATURES
+                   if feature.name == "webview")
+    old_features = tuple(replace(feature, deployment_revision=1)
+                         if feature.name == "webview" else feature
+                         for feature in feature_registry.FEATURES)
+    monkeypatch.setattr(feature_registry, "FEATURES", old_features)
+    assert inc._scan(root)[2] == old_key
+
+    (root / "main.py").write_text('from psx import WebView\nWebView(src="about:blank")')
+    previous_webview_key = inc._scan(root)[2]
+    monkeypatch.setattr(feature_registry, "FEATURES",
+                        tuple(webview if feature.name == "webview" else feature
+                              for feature in old_features))
+    assert inc._scan(root)[2] != previous_webview_key
 
 
 def _tar_files(apk):
@@ -277,6 +298,13 @@ def test_native_configuration_changes_force_full_build(project):
     assert inc.try_incremental_build(root, _request()) is None
 
 
+def test_android_permission_change_forces_manifest_rebuild(project):
+    root, apk = project
+    inc.record_full_build(root, apk, _request())
+    (root / "settings/android.json").write_text('{"permissions": ["CAMERA"]}')
+    assert inc.try_incremental_build(root, _request()) is None
+
+
 def test_new_qt_import_forces_full_build(project):
     root, apk = project
     inc.record_full_build(root, apk, _request())
@@ -303,7 +331,7 @@ def test_old_cache_format_is_not_reused(project):
     value["format"] = 1
     manifest.write_text(json.dumps(value))
     assert inc.try_incremental_build(root, _request()) is None
-    assert "versión anterior" in inc.incremental_cache_miss_reason(root)
+    assert "older format" in inc.incremental_cache_miss_reason(root)
 
 
 def test_full_build_does_not_cache_stale_application_source(project):

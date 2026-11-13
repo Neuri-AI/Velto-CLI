@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import configparser
-import os
 from pathlib import Path
 import re
 import warnings
@@ -14,6 +13,7 @@ except ImportError:  # Python 3.10
 
 from packaging.requirements import Requirement
 from velto_cli.adapters.mobile.qt.android_build_config import ANDROID_BUILD_FILES, ANDROID_OUTPUT_DIRS, ANDROID_CONFIG
+from velto_cli.adapters.mobile.qt.android_local_wheels import local_wheels, normalized_name, recipe_name
 
 
 def configure_requirements(root: Path, *, uses_velto: bool) -> bool:
@@ -22,6 +22,11 @@ def configure_requirements(root: Path, *, uses_velto: bool) -> bool:
         raise RuntimeError('Qt did not generate buildozer.spec; run --init-spec first')
     config = configparser.ConfigParser(interpolation=None)
     config.read(spec, encoding='utf-8')
+    overrides = local_wheels(root)
+
+    def requirement_name(name: str, suffix: str = '') -> str:
+        return recipe_name(name) if normalized_name(name) in overrides else name + suffix
+
     requirements = ['python3', 'shiboken6', 'PySide6']
     project = root / 'pyproject.toml'
     if project.is_file():
@@ -42,15 +47,12 @@ def configure_requirements(root: Path, *, uses_velto: bool) -> bool:
                     f'{requirement.specifier}; resolving by package name', RuntimeWarning,
                 )
             suffix = str(exact[0]) if len(exact) == 1 else ''
-            requirements.append(requirement.name + suffix)
+            requirements.append(requirement_name(requirement.name, suffix))
     if uses_velto:
-        # p4a compares recipe names literally. The local-wheel recipe is
-        # named qyro_engine, so requesting the hyphenated PyPI name bypasses
-        # it and silently retains a cached/published distribution instead.
-        qyro_requirement = ('qyro_engine' if os.environ.get('VELTO_ANDROID_QYRO_WHEEL')
-                            else 'qyro-engine')
-        requirements.extend(['velto', qyro_requirement, 'velto-core',
-                             'velto_cinnamon_core', 'resvg_py'])
+        requirements.extend([requirement_name('velto'), requirement_name('qyro-engine'),
+                             requirement_name('velto-core'),
+                             requirement_name('velto_cinnamon_core'),
+                             requirement_name('resvg_py')])
     unique = []
     seen = set()
     for value in requirements:

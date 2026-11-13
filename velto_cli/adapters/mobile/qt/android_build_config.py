@@ -4,6 +4,7 @@ from __future__ import annotations
 from fnmatch import fnmatchcase
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 
 ANDROID_CONFIG = "settings/android.json"
@@ -56,6 +57,13 @@ def load_android_build_config(root: Path) -> dict:
         )
     if "obfuscate" in value and type(value["obfuscate"]) is not bool:
         raise ValueError("android.json obfuscate must be boolean")
+    permissions = value.get("permissions", [])
+    if not isinstance(permissions, list) or any(
+        not isinstance(permission, str)
+        or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*", permission)
+        for permission in permissions
+    ):
+        raise ValueError("android.json permissions must be a list of Android permission names")
     if "signing" in value:
         raise ValueError(
             "Android signing belongs in settings/sign.json under the android key, "

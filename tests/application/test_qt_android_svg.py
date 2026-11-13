@@ -5,7 +5,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from velto_cli.adapters.mobile.qt.android_svg import (
+from velto_cli.adapters.mobile.qt.features.svg import (
     project_uses_svg,
     assert_android_svg_wheel,
     configure_android_svg_spec,

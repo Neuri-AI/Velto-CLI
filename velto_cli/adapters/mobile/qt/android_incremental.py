@@ -26,7 +26,8 @@ from velto_cli.adapters.mobile.common.android_icons import select_android_projec
 from velto_cli.adapters.mobile.qt.android_build_inputs import android_root_inspection_dirs
 from velto_cli.adapters.mobile.qt.android_build_config import (
     ANDROID_BUILD_FILES, ANDROID_TOOL_DIRS, android_exclusion_patterns, is_android_excluded,
-    is_android_project_directory, is_android_project_payload, verify_android_exclusions,
+    is_android_project_directory, is_android_project_payload, load_android_build_config,
+    verify_android_exclusions,
 )
 from velto_cli.adapters.mobile.qt.android_final_apk import (
     finalize_copied_debug_apk, android_private_version_marker,
@@ -35,9 +36,8 @@ from velto_cli.adapters.mobile.qt.android_sources import (
     PACKAGES, _project_runtime_assets,
     verify_qt_android_runtime_assets, verify_velto_apk_sources,
 )
-from velto_cli.adapters.mobile.qt.android_svg import (
-    project_uses_svg, verify_android_svg_apk,
-)
+from velto_cli.adapters.mobile.qt.features import enabled_qt_android_features
+from velto_cli.adapters.mobile.qt.android_permissions import android_permissions
 from velto_cli.adapters.mobile.qt.android_release import android_protected_resource_prefixes
 
 # Version 5 moves Android splash readiness into the Qt Java surface.  Older
@@ -109,7 +109,8 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
                   or rel.startswith("deployment/")):
                 native[rel] = _sha_file(item)
     # android.json controls source protection and which project files are
-    # shipped.  It does not change the already-built Qt/Python runtime:
+    # shipped. Permissions are tracked separately below because they change
+    # AndroidManifest.xml; the other fields do not change the Qt/Python runtime:
     # protection is handled before selecting this debug fast path, and file
     # exclusions are checked against the resulting private archive below.
     # Likewise sign.json is relevant only to release APKs (which never use
@@ -166,7 +167,8 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
             versions[package] = metadata.version(package)
         except metadata.PackageNotFoundError:
             versions[package] = "<absent>"
-    key_material = json.dumps({
+    features = enabled_qt_android_features(root)
+    key_inputs = {
         "files": native,
         "versions": versions,
         "python": sys.version,
@@ -174,7 +176,9 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
         "android_entrypoint": _sha_file(
             Path(__file__).parent.parent / "common" / "android_entrypoint.py"
         ),
-        "svg": project_uses_svg(root),
+        # PSX extensions can import Qt modules dynamically.  Their registry
+        # membership is therefore part of the native runtime cache key.
+        "qt-features": features.names,
         # This deliberately contains only inputs that affect the executable
         # Android runtime.  The implementation of the Velto packager is not
         # one of them: changing this module must improve how an existing APK
@@ -182,7 +186,15 @@ def _scan(root: Path) -> tuple[dict[str, Path], dict[str, str], str]:
         # runtime.  The archive, ABI, wheel, Qt/QML-import and Android-config
         # checks below remain the safety boundary for cache reuse.
         "format": _FORMAT,
-    }, sort_keys=True).encode("utf-8")
+    }
+    # Preserve existing keys for unaffected projects. A feature can change
+    # its native loader/JAR packaging without changing its detector or name.
+    if features.deployment_revisions:
+        key_inputs["qt-feature-deployment-revisions"] = features.deployment_revisions
+    configured_permissions = load_android_build_config(root).get("permissions", [])
+    if configured_permissions:
+        key_inputs["android-permissions"] = android_permissions(root)
+    key_material = json.dumps(key_inputs, sort_keys=True).encode("utf-8")
     return sources, file_hashes, hashlib.sha256(key_material).hexdigest()
 
 
@@ -235,10 +247,10 @@ def incremental_cache_miss_reason(root: Path) -> str:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
-        return "No hay una caché incremental válida; se necesita una compilación completa."
+        return "No valid incremental cache is available; a full build is required."
     if not isinstance(data, dict) or data.get("format") != _FORMAT:
-        return "La caché incremental es de una versión anterior; se necesita una compilación completa para renovarla."
-    return "La caché incremental no coincide con la configuración o el APK actual; se necesita una compilación completa."
+        return "The incremental cache uses an older format; a full build is required to refresh it."
+    return "The incremental cache does not match the current configuration or APK; a full build is required."
 
 
 def _archive_files(apk: Path) -> set[str]:
@@ -440,8 +452,7 @@ def try_incremental_build(root: Path, request: Any) -> Path | None:
                     raise RuntimeError("Incremental APK retains deleted resources")
         verify_velto_apk_sources(artifact, root)
         verify_qt_android_runtime_assets(artifact, root)
-        if project_uses_svg(root):
-            verify_android_svg_apk(artifact)
+        enabled_qt_android_features(root).verify(artifact)
         verify_android_exclusions(artifact, root)
         # Atomically publish a verified, signed APK under the stable output.
         output = root / "build/android/qt"

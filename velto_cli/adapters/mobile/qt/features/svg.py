@@ -1,4 +1,4 @@
-"""Explicit Qt SVG deployment for native PSX <img src="...svg"> on Android.
+"""Qt SVG deployment feature for native PSX <img src="...svg"> on Android.
 
 QtGui alone does not pull the Qt SVG image format plugin into the APK.
 PySide6 Android deploy uses qt.modules and android.plugins (NOT qt.plugins)

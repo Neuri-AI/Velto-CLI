@@ -1,8 +1,6 @@
 """PySide6 Android wheel resolution, Qt Java bootstrap, and APK packaging."""
 import shutil
 import sys
-import os
-from contextlib import contextmanager
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
@@ -24,9 +22,9 @@ from velto_cli.adapters.mobile.qt.android_build_config import (
 from velto_cli.adapters.mobile.qt.android_incremental import (
     try_incremental_build, record_full_build, incremental_cache_miss_reason, _scan,
 )
-from velto_cli.adapters.mobile.qt.android_svg import (
-    project_uses_svg, assert_android_svg_wheel, configure_android_svg_spec,
-    verify_android_svg_apk,
+from velto_cli.adapters.mobile.qt.android_local_wheels import local_wheel_overrides, local_wheels
+from velto_cli.adapters.mobile.qt.features import (
+    EnabledQtAndroidFeatures, enabled_qt_android_features,
 )
 from velto_cli.adapters.mobile.qt.wheel_archive import QtAndroidWheelArchive
 from velto_cli.adapters.mobile.qt.android_sources import (
@@ -35,41 +33,6 @@ from velto_cli.adapters.mobile.qt.android_sources import (
     _gradle_directory, _gradle_command,
 )
 from velto_cli.domain.mobile import MobileBuildArtifact, MobileFreezeRequest, MobileTarget
-
-
-def _local_qyro_wheel(root: Path) -> Path | None:
-    value = load_android_build_config(root).get("local_wheels", {})
-    if value is None:
-        return None
-    if not isinstance(value, dict) or any(not isinstance(k, str) or not isinstance(v, str)
-                                          for k, v in value.items()):
-        raise ValueError("android.json local_wheels must map distribution names to wheel paths")
-    path_value = value.get("qyro-engine") or value.get("qyro_engine")
-    if not path_value:
-        return None
-    wheel = Path(path_value).expanduser()
-    if not wheel.is_absolute():
-        wheel = root / wheel
-    wheel = wheel.resolve()
-    if not wheel.is_file() or wheel.suffix != ".whl" or not wheel.name.startswith("qyro_engine-"):
-        raise ValueError("android.json local_wheels.qyro-engine must reference qyro_engine-*.whl")
-    return wheel
-
-
-@contextmanager
-def _qyro_wheel_override(wheel: Path | None):
-    old = os.environ.get("VELTO_ANDROID_QYRO_WHEEL")
-    try:
-        if wheel is None:
-            os.environ.pop("VELTO_ANDROID_QYRO_WHEEL", None)
-        else:
-            os.environ["VELTO_ANDROID_QYRO_WHEEL"] = str(wheel)
-        yield
-    finally:
-        if old is None:
-            os.environ.pop("VELTO_ANDROID_QYRO_WHEEL", None)
-        else:
-            os.environ["VELTO_ANDROID_QYRO_WHEEL"] = old
 
 
 class QtAndroidBuilder:
@@ -667,11 +630,11 @@ public class SplashPythonActivity extends PythonActivity {
         launcher_conflict = (request.entry_point != "main.py"
                              and (request.project_root / "main.py").exists())
         resources_protected = android_resource_protection_enabled(request.project_root)
-        local_qyro = _local_qyro_wheel(request.project_root)
+        overrides = local_wheels(request.project_root)
         # A protected APK contains compiled application modules, so only
         # unprotected debug builds can safely replace source files in-place.
         if (enabled and request.debug and not request.clean and not request.protect_source
-                and not launcher_conflict and local_qyro is None):
+                and not launcher_conflict and not overrides):
             try:
                 quick = try_incremental_build(request.project_root, request)
             except Exception as exc:
@@ -702,7 +665,7 @@ public class SplashPythonActivity extends PythonActivity {
                 return self._pyside_android_impl(request)
         cache_snapshot = None
         if (enabled and request.debug and not request.protect_source
-                and not launcher_conflict and local_qyro is None):
+                and not launcher_conflict and not overrides):
             try:
                 _, hashes, native = _scan(request.project_root)
                 cache_snapshot = (hashes, native)
@@ -712,13 +675,14 @@ public class SplashPythonActivity extends PythonActivity {
         # The original app (including excluded settings) is never moved.
         with staged_android_project(request.project_root) as stage:
             staged_request = replace(request, project_root=stage)
-            with _qyro_wheel_override(local_qyro):
+            with local_wheel_overrides(overrides):
                 with android_entrypoint(stage, request.entry_point):
                     built = self._pyside_android_impl(staged_request)
             if built is None:
                 return None
             if not built.path.is_file():
                 raise RuntimeError("Android stage produced no artifact")
+            local_qyro = overrides.get("qyro-engine")
             if local_qyro is not None:
                 verify_velto_apk_sources(built.path, request.project_root,
                                          qyro_wheel=local_qyro)
@@ -756,7 +720,7 @@ public class SplashPythonActivity extends PythonActivity {
             if cache_snapshot is not None:
                 try:
                     if not record_full_build(request.project_root, built.path, request, cache_snapshot):
-                        self._warning("No se pudo guardar la caché incremental: el proyecto cambió durante la compilación o no coincide con el APK.")
+                        self._warning("Could not save the incremental cache: the project changed during the build or no longer matches the APK.")
                 except (OSError, RuntimeError, ValueError) as exc:
                     self._warning(f"Android incremental cache unavailable: {exc}")
             verify_android_exclusions(built.path, request.project_root)
@@ -798,14 +762,10 @@ public class SplashPythonActivity extends PythonActivity {
             )
 
         wheel_pyside, wheel_shiboken = self._qt_android_wheels(request)
-        # QPixmap needs the SVG imageformats plugin, not just QtGui.
-        # Verify that the target Android wheel can supply it before p4a
-        # starts compiling, then declare BOTH the QtSvg dependency and the
-        # imageformats plugin in pyside's Android-specific spec section.
-        svg_required = not request.init_only and project_uses_svg(root)
-        if svg_required:
-            assert_android_svg_wheel(wheel_pyside)
-            configure_android_svg_spec(spec)
+        features = EnabledQtAndroidFeatures(())
+        if not request.init_only:
+            features = enabled_qt_android_features(root)
+            features.prepare(wheel_pyside, spec)
         self._command("pyside6-android-deploy")
         args = [sys.executable, str(Path(__file__).with_name("android_deploy_entry.py")),
                 "--velto-entry", request.entry_point]
@@ -818,9 +778,9 @@ public class SplashPythonActivity extends PythonActivity {
             # Retain the generated Java/Gradle project when Android fails,
             # so missing classpath JARs can be inspected and diagnosed.
             args.extend([
-                "--extra-modules", (
-                    "Core,Gui,Widgets,Svg" if svg_required
-                    else "Core,Gui,Widgets"
+                "--extra-modules", ",".join(
+                    ("Core", "Gui", "Widgets")
+                    + features.modules
                 ),
                 "--keep-deployment-files",
             ])
@@ -893,6 +853,10 @@ public class SplashPythonActivity extends PythonActivity {
             artifact = self._qt_gradle_artifact(
                 root, artifact, debug=request.debug
             )
+        if features.prepare_gradle(artifact, debug=request.debug, run=self._run):
+            artifact = self._qt_gradle_artifact(
+                root, artifact, debug=request.debug
+            )
         if self._install_android_splash_bridge(artifact, root, debug=request.debug):
             artifact = self._qt_gradle_artifact(
                 root, artifact, debug=request.debug
@@ -951,8 +915,7 @@ public class SplashPythonActivity extends PythonActivity {
         )
         if enabled:
             verify_qt_android_runtime_assets(artifact, root)
-        if svg_required:
-            verify_android_svg_apk(artifact)
+        features.verify(artifact)
         published = self._publish_android_artifact(
             artifact, root, backend="qt"
         )
