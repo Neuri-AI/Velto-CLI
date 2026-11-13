@@ -37,6 +37,26 @@ class SubprocessRunner:
         )
 
         return completed.returncode
+
+    def run_capture(
+        self,
+        command: Sequence[str],
+        env: Optional[dict[str, str]] = None,
+        cwd: Optional[str] = None,
+    ) -> tuple[int, str]:
+        """Capture external diagnostics for classification before presentation."""
+        completed = subprocess.run(
+            command,
+            env=env,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+        return completed.returncode, completed.stdout or ""
+
+
 class SubprocessAppRunner:
     """Run an app from source, statically preparing inline PSX markup when used."""
 
